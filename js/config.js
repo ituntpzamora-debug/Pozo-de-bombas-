@@ -5,7 +5,7 @@ window.POZOS_CONFIG = {
   // URL del Web App de Google Apps Script (termina en /exec).
   // Si la dejás vacía, los datos se guardan solo en este navegador
   // (podés exportarlos/importarlos como JSON desde el pie de página).
-  API_URL: '',
+  API_URL: 'https://script.google.com/macros/s/AKfycbzSNAZialUcpR3x7BgVXnwfXh_D-MhEk6RRPvOLBWKj6VTNWZ3Ywbm357rVV9Rwdl40/exec',
 
   // Clave compartida opcional. Tiene que ser igual a TOKEN en Code.gs.
   TOKEN: '',
