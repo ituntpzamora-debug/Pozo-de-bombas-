@@ -11,7 +11,7 @@ window.POZOS_CONFIG = {
   TOKEN: '',
 
   // Planilla de origen (se usa para el enlace del encabezado).
-  SHEET_URL: 'https://docs.google.com/spreadsheets/d/1ymlgKOs-JUEOzjKK4ti0_oKbY5p7ksIDTOmgyGspupQ/edit',
+  SHEET_URL: 'https://docs.google.com/spreadsheets/d/1UCgLb9OmCgyQHCeIIKnoVtE0hNGBJicN0NXThDnjw2M/edit',
 
   // Fecha de la copia fija de pozos.js (se usa sin conexión).
   DATOS_AL: '27/10/2026',
