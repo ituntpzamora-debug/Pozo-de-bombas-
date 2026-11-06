@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="es">
-<!-- Pozos de agua profunda · Grupo MP · versión 05/11/2026 · todo en un solo archivo (estilos, código y logo). -->
+<!-- Pozos de agua profunda · Grupo MP · versión 06/11/2026 · todo en un solo archivo (estilos, código y logo). -->
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -830,16 +830,6 @@ window.PozosPDF = (function () {
         doc.link(bx, by, bwid, 7.5, { url: U.mapsUrl(w.lat, w.lon) });
       }
       y += hEq + 4;
-      if (w.obs) {
-        const ol = wrap(w.obs, CW - 12, 8.4);
-        const oh = 9 + ol.length * lh(8.4) + 2;
-        ensure(oh);
-        box(M, y, CW, oh, AMB_S, null);
-        doc.setFillColor(...AMB); doc.rect(M, y + 2.5, 1.3, oh - 5, 'F');
-        font('bold', 7, AMB); doc.text('OBSERVACIÓN DE PLANILLA', M + 5, y + 5.6);
-        font('normal', 8.4, INK); doc.text(ol, M + 5, y + 10.2);
-        y += oh + 4;
-      }
       y += 3;
 
       // --- Relevamiento
@@ -1386,8 +1376,6 @@ window.PozosPDF = (function () {
             <${Inset} l="Alimentación" v=${U.alimentacion(w.red)}/>
             <${Inset} l="Instalación" v=${pc.inst === 'S' ? 'Sumergida' : (pc.inst || '—')}/>
           </div>
-          ${w.obs ? html`<div class="inset" style=${{ marginTop: 10, borderColor: 'color-mix(in srgb, var(--amber) 35%, transparent)' }}>
-            <div class="lbl" style=${{ color: 'var(--amber)' }}>Observación de planilla</div><div style=${{ marginTop: 4 }}>${w.obs}</div></div>` : null}
         <//>
 
         <${Tile} c="s5" title="Ubicación">
