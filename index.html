@@ -338,6 +338,13 @@ table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:13px;mi
 .seg2 button.on.tipo-preventivo{border-color:var(--aqua);background:color-mix(in srgb,var(--aqua) 14%,transparent);color:var(--aqua)}
 @media(min-width:760px){.filters{grid-template-columns:2fr 1fr 1fr 1fr 1fr auto}}
 
+/* Adjuntos de mantenimientos */
+.adj-box{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.adj{display:inline-flex;align-items:center;gap:6px;max-width:100%;padding:4px 6px 4px 9px;border-radius:10px;border:1px solid var(--stroke2);background:var(--inset);font-size:12.5px}
+.adj svg{width:13px;height:13px;flex:none;color:var(--muted)}
+.adj a,.adj>span:not(.lbl){overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:260px}
+.adj.nuevo{border-style:dashed;border-color:var(--accent)}
+
 </style>
 </head>
 <body>
@@ -626,6 +633,15 @@ window.PozosUtil = (function () {
   const normEstadoB = (e) => { const x = normEstado(e); return x === 'Operativo' ? 'Operativa' : x; };
   const normTrabajo = (e) => { const t = String(e || '').toLowerCase(); return /final|termin|complet/.test(t) ? 'Finalizado' : /proceso|curso/.test(t) ? 'En proceso' : /pend/.test(t) ? 'Pendiente' : (e ? String(e) : 'Sin estado'); };
 
+  // Celda "Adjuntos": una línea por archivo, "Nombre | https://…" (o solo el enlace, pegado a mano).
+  function parseAdjuntos(txt) {
+    return String(txt || '').split(/\n+/).map((l) => {
+      const m = l.match(/https:\/\/\S+/);
+      if (!m) return null;
+      const name = l.slice(0, m.index).replace(/[|\s·-]+$/, '').trim();
+      return { url: m[0], name: name || 'Archivo adjunto' };
+    }).filter(Boolean);
+  }
   const normTipoM = (t) => { const x = String(t || '').trim().toLowerCase(); return x.startsWith('prev') ? 'Preventivo' : x.startsWith('corr') ? 'Correctivo' : ''; };
 
   function buildBombas(rows) {
@@ -657,12 +673,12 @@ window.PozosUtil = (function () {
       return {
         key: r.key, raw: r, codigo: String(r.codigo || '').trim(), code: b ? b.code : null, agricola: cleanTxt(r.agricola) || (b ? b.agricola : ''),
         recep: cleanTxt(r.recep) === '-' ? '' : cleanTxt(r.recep), usd: usd(r.presupuesto), descripcion: String(r.descripcion || '').trim(),
-        fecha: fechaAR(r.fecha), fechaTxt: String(r.fecha || '').trim(), trabajo: normTrabajo(r.estado), obs: cleanTxt(r.obs), tipoM: normTipoM(r.tipo)
+        fecha: fechaAR(r.fecha), fechaTxt: String(r.fecha || '').trim(), trabajo: normTrabajo(r.estado), obs: cleanTxt(r.obs), tipoM: normTipoM(r.tipo), adjuntos: parseAdjuntos(r.adjuntos)
       };
     }).sort((a, b) => String(b.fecha || '').localeCompare(String(a.fecha || '')));
   }
 
-  return { COLS, normCode, TIPOS_BOMBA, INSTALACION, parseCodeB, tipoLabel, claveBomba, fechaAR, isoAR, usd, fmtUSD, normEstadoB, normTrabajo, normTipoM, buildBombas, buildMants, hoy, fmtF, num, s, fmtN, fmtU, uid, esc, parseGMS, parseCode, shortCode, fincaDe, sectorDe, mapsUrl, normEstado,
+  return { COLS, normCode, TIPOS_BOMBA, INSTALACION, parseCodeB, tipoLabel, claveBomba, fechaAR, isoAR, usd, fmtUSD, normEstadoB, normTrabajo, normTipoM, parseAdjuntos, buildBombas, buildMants, hoy, fmtF, num, s, fmtN, fmtU, uid, esc, parseGMS, parseCode, shortCode, fincaDe, sectorDe, mapsUrl, normEstado,
     alimentacion, origenLink, groupBy, sortAcciones, normalizeData, buildWells, loadLogo };
 })();
 
@@ -2489,7 +2505,7 @@ window.BombasPDF = (function () {
         doc.text(T(`${ms.length} trabajo${ms.length === 1 ? '' : 's'} registrado${ms.length === 1 ? '' : 's'} · ${ep} en proceso · inversión ${usdTxt(tot)}`), M, y + 2);
         y += 5;
         table(['Fecha', 'Tipo', 'Trabajo realizado', 'Recep./OC', 'USD', 'Estado'],
-          ms.map((m) => [fechaDe(m), T(m.tipoM || '-'), T(m.descripcion + (m.obs ? '\nObs.: ' + m.obs : '')), T(m.recep || '-'), m.usd ? usdTxt(m.usd).replace('USD ', '') : '-', { content: '', trabajo: m.trabajo }]),
+          ms.map((m) => [fechaDe(m), T(m.tipoM || '-'), T(m.descripcion + (m.obs ? '\nObs.: ' + m.obs : '') + (m.adjuntos && m.adjuntos.length ? '\nAdjuntos: ' + m.adjuntos.map((a) => a.name).join(', ') : '')), T(m.recep || '-'), m.usd ? usdTxt(m.usd).replace('USD ', '') : '-', { content: '', trabajo: m.trabajo }]),
           { columnStyles: { 0: { cellWidth: 19 }, 1: { cellWidth: 20, fontStyle: 'bold' }, 3: { cellWidth: 19 }, 4: { cellWidth: 16, halign: 'right' }, 5: { cellWidth: 27, minCellHeight: 8.5 } } });
       } else vacio('Sin mantenimientos registrados para esta bomba.');
     });
@@ -2553,7 +2569,7 @@ window.BombasPDF = (function () {
    Se arma con las piezas compartidas de app.js: window.crearModuloBombas(G). */
 window.crearModuloBombas = function (G) {
   'use strict';
-  const { html, useState, useEffect, useMemo, useRef, RC, I, Tile, Inset, Fld, ConfirmDel, tooltipStyle, U } = G;
+  const { html, useState, useEffect, useMemo, useRef, RC, I, Tile, Inset, Fld, ConfirmDel, tooltipStyle, U } = G;   // G.api: adjuntos
   const TRABAJOS = ['En proceso', 'Finalizado'];
   const TIPOS_M = ['Correctivo', 'Preventivo'];
   function ChipM({ t }) { return t ? html`<span class=${'chip tipo-' + t.toLowerCase()}>${t}</span>` : null; }
@@ -2829,6 +2845,20 @@ window.crearModuloBombas = function (G) {
       descripcion: m ? m.descripcion : '', recep: m ? m.recep : '', usd: m && m.usd != null ? String(m.usd) : '', obs: m ? m.obs : '', tipoM: m ? (m.tipoM || '') : ''
     }));
     const [busy, setBusy] = useState(false);
+    const [files, setFiles] = useState([]);
+    const fileRef = useRef(null);
+    const MAX_MB = 10;
+    const addFiles = (ev) => {
+      const nuevos = Array.from(ev.target.files || []);
+      ev.target.value = '';
+      const ok = [];
+      for (const fl of nuevos) {
+        if (!/\.(pdf|docx?)$/i.test(fl.name)) { toast('“' + fl.name + '” no es PDF ni Word.', 'bad'); continue; }
+        if (fl.size > MAX_MB * 1024 * 1024) { toast('“' + fl.name + '” supera los ' + MAX_MB + ' MB.', 'bad'); continue; }
+        ok.push(fl);
+      }
+      if (ok.length) setFiles(files.concat(ok));
+    };
     const set = (k) => (e) => setF(Object.assign({}, f, { [k]: e.target.value }));
     const bomba = bombas.find((x) => x.code === f.code);
     const save = async () => {
@@ -2842,10 +2872,24 @@ window.crearModuloBombas = function (G) {
       if (f.fecha) data.fecha = f.fecha;
       if (f.tipoM || (m && m.tipoM)) data.tipo = f.tipoM;
       if (nuevo) { data.codigo = bomba.code; data.agricola = bomba.agricola; } else { data.key = m.key; data.codigo = m.codigo; }
-      setBusy(true);
+      setBusy('Guardando…');
       const ok = await mutateB([{ op: 'put', col: 'mant', id: nuevo ? 'nuevo' : m.key.hash, data }]);
+      if (!ok) return setBusy(false);
+      // Los archivos se suben después de guardar la fila, de a uno.
+      let fallo = '';
+      if (files.length) {
+        const key = ok.mantKey || (m && m.key);
+        if (!key) fallo = 'no se pudo ubicar la fila en la hoja';
+        for (let i = 0; i < files.length && !fallo; i++) {
+          setBusy(`Subiendo archivo ${i + 1} de ${files.length}…`);
+          try { await G.api.subir(key, files[i]); } catch (err) { fallo = err.message || 'error al subir'; }
+        }
+        G.api.recargar();
+      }
       setBusy(false);
-      if (ok) { toast(nuevo ? 'Mantenimiento agregado a la hoja.' : 'Mantenimiento actualizado en la hoja.'); onClose(nuevo ? bomba.code : null); }
+      if (fallo) toast('El mantenimiento se guardó, pero no se pudo adjuntar un archivo: ' + fallo, 'bad');
+      else toast((nuevo ? 'Mantenimiento agregado a la hoja' : 'Mantenimiento actualizado en la hoja') + (files.length ? ` con ${files.length} adjunto${files.length === 1 ? '' : 's'}.` : '.'));
+      onClose(nuevo ? bomba.code : null);
     };
     return html`<div class="mant-form">
       <div class="row between" style=${{ marginBottom: 10 }}>
@@ -2867,15 +2911,28 @@ window.crearModuloBombas = function (G) {
         <${Fld} l="Descripción del mantenimiento *" full><textarea class="inp" value=${f.descripcion} onInput=${set('descripcion')} placeholder="Qué se hizo, qué se cambió, quién lo hizo…"></textarea><//>
         <${Fld} l="Observaciones" full><textarea class="inp" value=${f.obs} onInput=${set('obs')} placeholder="Pendientes, recomendaciones…"></textarea><//>
       </div>
+      <div class="fld" style=${{ marginTop: 10 }}><span>Adjuntos · OT, presupuestos (PDF o Word, hasta ${MAX_MB} MB)</span>
+        ${G.api.conectado ? html`<div class="adj-box">
+          ${m && m.adjuntos.length ? m.adjuntos.map((a) => html`<span class="adj" key=${a.url}>${I.clip}<a href=${a.url} target="_blank" rel="noopener">${a.name}</a><span class="lbl">ya adjunto</span></span>`) : null}
+          ${files.map((fl, i) => html`<span class="adj nuevo" key=${i}>${I.clip}<span>${fl.name}</span><span class="lbl">${(fl.size / 1048576).toFixed(1)} MB</span>
+            <button type="button" class="btn btn-sm btn-ghost" title="Quitar" onClick=${() => setFiles(files.filter((x, k) => k !== i))}>✕</button></span>`)}
+          <button type="button" class="btn btn-sm" onClick=${() => fileRef.current && fileRef.current.click()}>${I.clip} Elegir archivos…</button>
+          <input ref=${fileRef} type="file" class="sr" multiple accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange=${addFiles}/>
+        </div>
+        <div class="note">Se guardan en tu Google Drive y el enlace queda en la hoja. Los abre quien tenga acceso a esa carpeta de Drive.</div>`
+        : html`<div class="note">Para adjuntar archivos la página tiene que estar conectada a la planilla (en GitHub lo está).</div>`}
+      </div>
       ${!nuevo && !m.fecha && m.fechaTxt ? html`<div class="warn" style=${{ marginTop: 6 }}>En la hoja la fecha figura como “${m.fechaTxt}”. Si elegís una fecha acá, se corrige.</div>` : null}
       <div class="row" style=${{ justifyContent: 'flex-end', marginTop: 10 }}>
         <button class="btn" onClick=${() => onClose(null)}>Cancelar</button>
-        <button class="btn btn-acc" disabled=${busy} onClick=${save}>${busy ? 'Guardando…' : nuevo ? 'Agregar mantenimiento' : 'Guardar cambios'}</button>
+        <button class="btn btn-acc" disabled=${!!busy} onClick=${save}>${busy || (nuevo ? 'Agregar mantenimiento' : 'Guardar cambios')}</button>
       </div>
     </div>`;
   }
 
   function MantItem({ m, canEdit, onEdit, onDel, showCode, onOpen }) {
+    const [quitando, setQuitando] = useState('');
+    const quitar = async (a) => { setQuitando(a.url); await G.api.quitar(m.key, a.url); setQuitando(''); };
     return html`<div class="mant">
       <div class="row between" style=${{ gap: 8 }}>
         <span class="row" style=${{ gap: 8 }}>
@@ -2891,6 +2948,9 @@ window.crearModuloBombas = function (G) {
       </div>
       <div class="t">${m.descripcion}</div>
       ${m.obs ? html`<div class="note"><b>Obs.:</b> ${m.obs}</div>` : null}
+      ${m.adjuntos.length ? html`<div class="adj-box">${m.adjuntos.map((a) => html`<span class="adj" key=${a.url} style=${{ opacity: quitando === a.url ? 0.4 : 1 }}>${I.clip}
+        <a href=${a.url} target="_blank" rel="noopener">${a.name} ↗</a>
+        ${canEdit && G.api.conectado ? html`<${ConfirmDel} onYes=${() => quitar(a)}/>` : null}</span>`)}</div>` : null}
       <div class="lbl" style=${{ marginTop: 2 }}>${m.recep ? 'Recep./OC ' + m.recep : ''}${m.code && U.normCode(m.codigo) !== m.code ? (m.recep ? ' · ' : '') + 'en la hoja figura como ' + m.codigo : ''}</div>
     </div>`;
   }
@@ -3174,6 +3234,7 @@ window.crearModuloBombas = function (G) {
     pump: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="13" r="5.5"/><circle cx="9" cy="13" r="1.6"/><path d="M14.5 13H21M17.5 9v8M9 7.5V3h4"/></svg>`,
     home: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg>`,
     bolt: html`<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M13.5 2 4.5 13.5H11l-1 8.5 9.5-12H13z"/></svg>`,
+    clip: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5 12.5 20a5.5 5.5 0 0 1-7.8-7.8l8.6-8.5a3.7 3.7 0 0 1 5.2 5.2l-8.5 8.5a1.8 1.8 0 0 1-2.6-2.6l7.8-7.8"/></svg>`,
     pin: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 22s7-6.2 7-12a7 7 0 0 0-14 0c0 5.8 7 12 7 12z"/><circle cx="12" cy="10" r="2.6"/></svg>`,
     pdf: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M12 12v6M9 15l3 3 3-3"/></svg>`
   };
@@ -3209,6 +3270,8 @@ window.crearModuloBombas = function (G) {
           return res;
         },
         bulk: (ops, session) => post({ action: 'bulk', ops, session }),
+        upload: (session, key, name, b64) => post({ action: 'upload', session, key, name, b64 }),
+        unattach: (session, key, url) => post({ action: 'unattach', session, key, url }),
         login: (user, pass) => post({ action: 'login', user, pass }),
         check: (session) => post({ action: 'check', session })
       };
@@ -3949,7 +4012,7 @@ window.crearModuloBombas = function (G) {
     { id: 'mant', n: '03', t: 'Mantenimientos' },
     { id: 'informe', n: '04', t: 'Informe' }
   ];
-  const G = { html, useState, useEffect, useMemo, useRef, RC, I, Tile, Inset, Fld, ConfirmDel, tooltipStyle, U };
+  const G = { html, useState, useEffect, useMemo, useRef, RC, I, Tile, Inset, Fld, ConfirmDel, tooltipStyle, U, api: { conectado: store.mode === 'sheets' } };
   const B = window.crearModuloBombas ? window.crearModuloBombas(G) : null;
 
   // Aplica en pantalla, al instante, lo que se manda a las hojas de bombas.
@@ -4118,11 +4181,22 @@ window.crearModuloBombas = function (G) {
       const prev = rawBRef.current;
       setRawB(applyB(prev, ops));
       try {
-        await store.bulk(ops, adminRef.current && adminRef.current.session);
+        const j = await store.bulk(ops, adminRef.current && adminRef.current.session);
         if (store.mode === 'sheets') load(true);
-        return true;
+        return j || true;
       } catch (err) { console.error(err); setRawB(prev); authFail(err); return false; }
     }, []);
+    // Adjuntos de mantenimientos: suben a Drive a través del Apps Script.
+    G.api.subir = async (key, file) => {
+      const b64 = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result).split(',')[1] || ''); fr.onerror = () => rej(new Error('No se pudo leer el archivo')); fr.readAsDataURL(file); });
+      try { return await store.upload(adminRef.current && adminRef.current.session, key, file.name, b64); }
+      catch (err) { if (err.auth) authFail(err); throw err; }
+    };
+    G.api.quitar = async (key, url) => {
+      try { await store.unattach(adminRef.current && adminRef.current.session, key, url); await load(true); return true; }
+      catch (err) { console.error(err); authFail(err); return false; }
+    };
+    G.api.recargar = () => load(true);
     useEffect(() => {
       if (!admin || store.mode !== 'sheets') return;
       store.check(admin.session).catch((e) => { if (e.auth) { borrarSesion(); setAdmin(null); } });
