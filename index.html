@@ -345,6 +345,11 @@ table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:13px;mi
 .adj a,.adj>span:not(.lbl){overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:260px}
 .adj.nuevo{border-style:dashed;border-color:var(--accent)}
 
+/* Menú con tres o más tarjetas */
+.mod-card.s4 .mod-t{font-size:clamp(22px,2.1vw,27px)}
+.mod-card.s4 .mod-stats .disp{font-size:26px!important}
+.mod-card.s4 .mod-stats>div{padding:9px 10px}
+
 </style>
 </head>
 <body>
@@ -631,7 +636,7 @@ window.PozosUtil = (function () {
   }
   const fmtUSD = (n) => (n == null ? '—' : 'USD ' + Number(n).toLocaleString('es-AR', { maximumFractionDigits: 0 }));
   const normEstadoB = (e) => { const x = normEstado(e); return x === 'Operativo' ? 'Operativa' : x; };
-  const normTrabajo = (e) => { const t = String(e || '').toLowerCase(); return /final|termin|complet/.test(t) ? 'Finalizado' : /proceso|curso/.test(t) ? 'En proceso' : /pend/.test(t) ? 'Pendiente' : (e ? String(e) : 'Sin estado'); };
+  const normTrabajo = (e) => { const t = String(e || '').toLowerCase(); return /final|termin|complet/.test(t) ? 'Finalizado' : /proceso|curso/.test(t) ? 'En proceso' : /no inic/.test(t) ? 'No iniciado' : /pend/.test(t) ? 'Pendiente' : (e ? String(e) : 'Sin estado'); };
 
   // Celda "Adjuntos": una línea por archivo, "Nombre | https://…" (o solo el enlace, pegado a mano).
   function parseAdjuntos(txt) {
@@ -662,11 +667,41 @@ window.PozosUtil = (function () {
     return out;
   }
 
+  /* ================= GRUPOS ELECTRÓGENOS ================= */
+  // Código: UNIDAD-SECTOR-(F fijo | M móvil)-kVA-MOTOR-GENERADOR-N°   ej. TDB-R-F-500-PER-C-08
+  const MOTORES_G = { PER: 'Perkins', JD: 'John Deere', SC: 'Scania', CU: 'Cummins' };
+  const GENERADORES_G = { C: 'Cramaco', W: 'FG Wilson' };
+  function parseCodeG(code) {
+    const t = normCode(code).split('-');
+    const i = t.findIndex((x, k) => k > 0 && (x === 'F' || x === 'M') && /^\d+([.,]\d+)?$/.test(t[k + 1] || ''));
+    if (i < 0) return { unidad: t[0] || '', sector: t.slice(1).join('-'), modo: '', kva: '', motor: '', gen: '', num: '' };
+    return { unidad: t[0], sector: t.slice(1, i).join('-'), modo: t[i], kva: t[i + 1], motor: t[i + 2] || '', gen: t[i + 3] || '', num: t[i + 4] || '' };
+  }
+  function buildGrupos(rows) {
+    const out = [], seen = new Set();
+    (rows || []).forEach((r) => {
+      const code = normCode(r.codigo);
+      if (!code || seen.has(code)) return;
+      seen.add(code);
+      const pc = parseCodeG(code);
+      const mg = String(r.motorGen || '').split(/\s+\/\s+/);
+      const mv = String(r.movil || '').trim().toLowerCase();
+      out.push(withLL({
+        code, raw: r, agricola: cleanTxt(r.agricola) || 'S/D', gms: cleanTxt(r.ubicacion),
+        motor: cleanTxt(mg[0]) || 's/d', generador: cleanTxt(mg.slice(1).join(' / ')) || 's/d', integrador: cleanTxt(r.integrador) || '—',
+        potencia: cleanTxt(r.potencia) || (pc.kva ? pc.kva + ' KVA' : '—'),
+        movil: /^s/.test(mv) ? 'Sí' : /^n/.test(mv) ? 'No' : (pc.modo === 'M' ? 'Sí' : pc.modo === 'F' ? 'No' : '—'),
+        ultMantReg: cleanTxt(r.ultMant), ultFechaReg: fechaAR(r.ultFecha), estado: normEstado(r.estado), obs: cleanTxt(r.obs), pc
+      }));
+    });
+    return out;
+  }
+
   // Asocia cada mantenimiento con su bomba: código exacto o, si no, finca + tipo (TDB12 + BH2).
-  function buildMants(rows, bombas) {
+  function buildMants(rows, bombas, soloExacto) {
     const exact = new Map(bombas.map((b) => [b.code, b]));
     const porClave = new Map();
-    bombas.forEach((b) => { const k = claveBomba(b.code); porClave.set(k, porClave.has(k) ? null : b); });
+    if (!soloExacto) bombas.forEach((b) => { const k = claveBomba(b.code); porClave.set(k, porClave.has(k) ? null : b); });
     return (rows || []).map((r) => {
       const c = normCode(r.codigo);
       const b = exact.get(c) || porClave.get(claveBomba(c)) || null;
@@ -678,7 +713,7 @@ window.PozosUtil = (function () {
     }).sort((a, b) => String(b.fecha || '').localeCompare(String(a.fecha || '')));
   }
 
-  return { COLS, normCode, TIPOS_BOMBA, INSTALACION, parseCodeB, tipoLabel, claveBomba, fechaAR, isoAR, usd, fmtUSD, normEstadoB, normTrabajo, normTipoM, parseAdjuntos, buildBombas, buildMants, hoy, fmtF, num, s, fmtN, fmtU, uid, esc, parseGMS, parseCode, shortCode, fincaDe, sectorDe, mapsUrl, normEstado,
+  return { COLS, normCode, TIPOS_BOMBA, INSTALACION, parseCodeB, tipoLabel, claveBomba, fechaAR, isoAR, usd, fmtUSD, normEstadoB, normTrabajo, normTipoM, parseAdjuntos, parseCodeG, buildGrupos, MOTORES_G, GENERADORES_G, buildBombas, buildMants, hoy, fmtF, num, s, fmtN, fmtU, uid, esc, parseGMS, parseCode, shortCode, fincaDe, sectorDe, mapsUrl, normEstado,
     alimentacion, origenLink, groupBy, sortAcciones, normalizeData, buildWells, loadLogo };
 })();
 
@@ -2250,7 +2285,19 @@ window.BombasPDF = (function () {
   const usdTxt = (n) => (n == null ? '-' : 'USD ' + Number(n).toLocaleString('es-AR', { maximumFractionDigits: 0 }));
   const fechaDe = (m) => (m.fecha ? U.fmtF(m.fecha) : (m.fechaTxt || '-'));
 
+  // Textos y campos propios de cada tipo de equipo. Por defecto, bombas; ctx.K lo reemplaza (grupos electrógenos).
+  const K_BOMBAS = {
+    Uno: 'Bomba', uno: 'bomba', Plural: 'Bombas', plural: 'bombas', Op: 'Operativa', Ops: 'Operativas', incl: 'incluidas', esta: 'esta bomba',
+    titulo: 'Estado de bombas de agua', pie: 'Bombas de agua', hojaReg: 'Registro BOMBA', hojaMant: 'Mantenimiento de BOMBAS', archivo: 'Bombas', colExtra: 'Aplicación',
+    extra: (b) => b.tipoLabel, sub: (b) => `${b.agricola} · ${b.tipoLabel}`,
+    parts: (b) => [['Finca', b.pc.finca], ['Sector', b.pc.sector || '-'], ['Aplicación', b.pc.tipo ? b.pc.tipo + ' · ' + b.tipoLabel : '-'],
+      ['Instalación', U.INSTALACION[b.pc.inst] || b.pc.inst || '-'], ['Potencia', b.pc.hp ? b.pc.hp + ' HP' : (b.pot || '-')]],
+    eq: (b) => [['Motor', b.motor || 's/d'], ['Bomba', b.bomba || 's/d'], ['Pot / capacidad', b.potencia || '-'], ['Corriente In (A)', b.corriente || '-'],
+      ['Cañería', b.caneria || '-'], ['Alimentación', U.alimentacion(b.red)]]
+  };
+
   function build(codes, ctx, logo, pageOf) {
+    const K = ctx.K || K_BOMBAS;
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ unit: 'mm', format: 'a4' });
     const bombas = codes.map((c) => ctx.bombas.find((b) => b.code === c)).filter(Boolean);
@@ -2336,17 +2383,17 @@ window.BombasPDF = (function () {
 
     /* =========================== PORTADA =========================== */
     if (multi) {
-      cur = { t: 'Estado de bombas de agua', s: `Informe al ${hoy}` };
+      cur = { t: K.titulo, s: `Informe al ${hoy}` };
       mark();
-      const op = bombas.filter((b) => b.estado === 'Operativa').length;
+      const op = bombas.filter((b) => /^Operativ/.test(b.estado)).length;
       const fs = bombas.filter((b) => b.estado === 'Fuera de servicio').length;
       const pct = bombas.length ? Math.round((op / bombas.length) * 100) : 0;
       const tipos = U.groupBy(bombas, U.fincaDe);
       const enProc = mants.filter((m) => m.trabajo === 'En proceso');
 
       const kw = (CW - 3 * 4) / 4, kh = 27;
-      [['Bombas incluidas', String(bombas.length), INK, `${tipos.length} agrícola${tipos.length === 1 ? '' : 's'}`],
-        ['Operativas', String(op), OK, 'en servicio'], ['Fuera de servicio', String(fs), BAD, `${enProc.length} trabajo${enProc.length === 1 ? '' : 's'} en proceso`], ['Disponibilidad', pct + '%', OL, null]]
+      [[K.Plural + ' ' + K.incl, String(bombas.length), INK, `${tipos.length} ${K.agr || 'agrícola'}${tipos.length === 1 ? '' : (K.agr ? 'es' : 's')}`],
+        [K.Ops, String(op), OK, 'en servicio'], ['Fuera de servicio', String(fs), BAD, `${enProc.length} trabajo${enProc.length === 1 ? '' : 's'} en proceso`], ['Disponibilidad', pct + '%', OL, null]]
         .forEach(([l, n, c, sub], i) => {
           const x = M + i * (kw + 4);
           box(x, y, kw, kh, i === 3 ? [241, 248, 228] : PAPER, LINE);
@@ -2362,12 +2409,12 @@ window.BombasPDF = (function () {
       y += kh + 9;
 
       // 1 · Por agrícola
-      sectionTitle(1, 'Bombas por agrícola', 10 * tipos.length);
+      sectionTitle(1, K.Plural + ' por ' + (K.agr || 'agrícola'), 10 * tipos.length);
       const maxT = Math.max(1, ...tipos.map(([, bs]) => bs.length));
       const bx = M + 40, bw = CW - 60, bh = 6.4;
       tipos.forEach(([t, bs]) => {
         ensure(10);
-        const o = bs.filter((b) => b.estado === 'Operativa').length, f = bs.filter((b) => b.estado === 'Fuera de servicio').length;
+        const o = bs.filter((b) => /^Operativ/.test(b.estado)).length, f = bs.filter((b) => b.estado === 'Fuera de servicio').length;
         const ow = bw * o / maxT, fw = bw * f / maxT;
         font('bold', 8.4, INK); doc.text(T(t), M + 2, y + 4.6);
         box(bx, y, bw, bh, PAPER, null, 1.5);
@@ -2376,11 +2423,11 @@ window.BombasPDF = (function () {
         font('bold', 7.4, WHITE);
         if (o && ow > 6) doc.text(String(o), bx + ow / 2, y + 4.4, { align: 'center' });
         if (f && fw > 6) doc.text(String(f), bx + ow + fw / 2, y + 4.4, { align: 'center' });
-        font('normal', 8, GR); doc.text(`${bs.length} bomba${bs.length === 1 ? '' : 's'}`, PW - M, y + 4.6, { align: 'right' });
+        font('normal', 8, GR); doc.text(`${bs.length} ${K.uno}${bs.length === 1 ? '' : 's'}`, PW - M, y + 4.6, { align: 'right' });
         y += bh + 3.6;
       });
       font('normal', 7.4, GR);
-      doc.setFillColor(...OK); doc.circle(bx + 1, y + 1.4, 1.1, 'F'); doc.text('Operativas', bx + 3.5, y + 2.4);
+      doc.setFillColor(...OK); doc.circle(bx + 1, y + 1.4, 1.1, 'F'); doc.text(K.Ops, bx + 3.5, y + 2.4);
       doc.setFillColor(...BAD); doc.circle(bx + 26, y + 1.4, 1.1, 'F'); doc.text('Fuera de servicio', bx + 28.5, y + 2.4);
       y += 9;
 
@@ -2416,11 +2463,11 @@ window.BombasPDF = (function () {
       }
 
       // 3 · Situación por bomba
-      sectionTitle(3, 'Situación por bomba', 40);
-      table(['Código', 'Agrícola', 'Aplicación', 'Estado', 'Último mant.', 'Invertido', 'Pág.'],
+      sectionTitle(3, 'Situación por ' + K.uno, 40);
+      table(['Código', K.agr ? 'Unidad' : 'Agrícola', K.colExtra, 'Estado', 'Último mant.', 'Invertido', 'Pág.'],
         bombas.map((b) => {
           const ms = msDe(b.code); const u = ms.find((m) => m.fecha); const tot = ms.reduce((a, m) => a + (m.usd || 0), 0);
-          return [{ content: T(b.code), page: pageOf[b.code] }, T(b.agricola), T(b.tipoLabel), { content: '', estado: b.estado === 's/d' ? 'Sin estado' : b.estado },
+          return [{ content: T(b.code), page: pageOf[b.code] }, T(b.agricola), T(K.extra(b)), { content: '', estado: b.estado === 's/d' ? 'Sin estado' : b.estado },
             u ? U.fmtF(u.fecha) : '-', tot ? usdTxt(tot) : '-',
             { content: pageOf[b.code] ? String(pageOf[b.code]) : '', styles: { halign: 'center', textColor: TEAL, fontStyle: 'bold' } }];
         }),
@@ -2440,7 +2487,7 @@ window.BombasPDF = (function () {
 
     /* =========================== FICHA POR BOMBA =========================== */
     bombas.forEach((b, i) => {
-      cur = { t: 'Bomba ' + b.code, s: `${b.agricola} · ${b.tipoLabel}` };
+      cur = { t: K.Uno + ' ' + b.code, s: K.sub(b) };
       if (multi || i > 0) newPage(); else { mark(); y = TOP_BAND; }
       starts[b.code] = doc.getNumberOfPages();
       const pc = b.pc;
@@ -2451,15 +2498,14 @@ window.BombasPDF = (function () {
       const hh = 44;
       box(M, y, CW, hh, bg, null, 3.2);
       doc.setFillColor(...fg); doc.rect(M, y + 4, 1.5, hh - 8, 'F');
-      font('bold', 7.4, GR); doc.text(T(`${b.agricola} · ${b.tipoLabel}`).toUpperCase(), M + 6, y + 7.5);
+      font('bold', 7.4, GR); doc.text(T(K.sub(b)).toUpperCase(), M + 6, y + 7.5);
       font('bold', 18, INK); doc.text(T(b.code), M + 6, y + 16.5);
-      font('normal', 7.6, GR); doc.text('Estado según la hoja Registro BOMBA', M + 6, y + 21.5);
-      const etiqueta = 'Bomba ' + (b.estado === 's/d' ? 'sin estado' : b.estado);
+      font('normal', 7.6, GR); doc.text('Estado según la hoja ' + K.hojaReg, M + 6, y + 21.5);
+      const etiqueta = K.Uno + ' ' + (b.estado === 's/d' ? 'sin estado' : b.estado);
       font('bold', 8.5);
       const pw = doc.getTextWidth(T(etiqueta).toUpperCase()) + 9;
       pill(PW - M - 5 - pw, y + 5, etiqueta, WHITE, fg, 8.5);
-      const parts = [['Finca', pc.finca], ['Sector', pc.sector || '-'], ['Aplicación', pc.tipo ? pc.tipo + ' · ' + b.tipoLabel : '-'],
-        ['Instalación', U.INSTALACION[pc.inst] || pc.inst || '-'], ['Potencia', pc.hp ? pc.hp + ' HP' : (b.pot || '-')]];
+      const parts = K.parts(b);
       const pw5 = (CW - 12 - 4 * 2.5) / 5;
       parts.forEach(([l, val], k) => {
         const x = M + 6 + k * (pw5 + 2.5);
@@ -2471,9 +2517,8 @@ window.BombasPDF = (function () {
 
       sectionTitle(sec++, 'Equipo y ubicación', 50);
       const lw = CW * 0.58, rw = CW - lw - 4;
-      const eq = [['Motor', b.motor || 's/d'], ['Bomba', b.bomba || 's/d'], ['Pot / capacidad', b.potencia || '-'], ['Corriente In (A)', b.corriente || '-'],
-        ['Cañería', b.caneria || '-'], ['Alimentación', U.alimentacion(b.red)]];
-      const ub = [['Agrícola', b.agricola], ['Coordenadas', b.lat != null ? `${b.lat.toFixed(5)}, ${b.lon.toFixed(5)}` : 'Sin coordenadas']];
+      const eq = K.eq(b);
+      const ub = [[K.agr ? 'Unidad' : 'Agrícola', b.agricola], [b.lat != null ? 'Coordenadas' : 'Ubicación', b.lat != null ? `${b.lat.toFixed(5)}, ${b.lon.toFixed(5)}` : (b.gms || 'Sin ubicación cargada')]];
       const hEq = Math.max(10 + kv(0, 0, lw - 9, eq, false, 28) + 3, 10 + kv(0, 0, rw - 9, ub, false, 24) + 3 + (b.lat != null ? 12 : 0));
       ensure(hEq);
       box(M, y, lw, hEq, WHITE, LINE); cardTitle(M, y, 'Equipo'); kv(M + 4.5, y + 10, lw - 9, eq, true, 28);
@@ -2507,7 +2552,7 @@ window.BombasPDF = (function () {
         table(['Fecha', 'Tipo', 'Trabajo realizado', 'Recep./OC', 'USD', 'Estado'],
           ms.map((m) => [fechaDe(m), T(m.tipoM || '-'), T(m.descripcion + (m.obs ? '\nObs.: ' + m.obs : '') + (m.adjuntos && m.adjuntos.length ? '\nAdjuntos: ' + m.adjuntos.map((a) => a.name).join(', ') : '')), T(m.recep || '-'), m.usd ? usdTxt(m.usd).replace('USD ', '') : '-', { content: '', trabajo: m.trabajo }]),
           { columnStyles: { 0: { cellWidth: 19 }, 1: { cellWidth: 20, fontStyle: 'bold' }, 3: { cellWidth: 19 }, 4: { cellWidth: 16, halign: 'right' }, 5: { cellWidth: 27, minCellHeight: 8.5 } } });
-      } else vacio('Sin mantenimientos registrados para esta bomba.');
+      } else vacio('Sin mantenimientos registrados para ' + K.esta + '.');
     });
 
     /* =========================== ENCABEZADOS Y PIES =========================== */
@@ -2529,8 +2574,8 @@ window.BombasPDF = (function () {
         font('bold', 7.6, LIME); doc.text('INGENIERÍA INDUSTRIAL · GRUPO MP', M, 17);
         font('bold', 21, WHITE); doc.text(T(tt.t), M, 29, { maxWidth: PW - 2 * M - 34 });
         font('normal', 9.5, [190, 210, 200]);
-        doc.text(T(multi ? `Informe al ${hoy} · ${bombas.length} bombas` : `${tt.s} · ficha al ${hoy}`), M, 37);
-        font('normal', 8, [150, 175, 165]); doc.text('Fuente: hojas Registro BOMBA y Mantenimiento de BOMBAS', M, 43.5);
+        doc.text(T(multi ? `Informe al ${hoy} · ${bombas.length} ${K.plural}` : `${tt.s} · ficha al ${hoy}`), M, 37);
+        font('normal', 8, [150, 175, 165]); doc.text('Fuente: hojas ' + K.hojaReg + ' y ' + K.hojaMant, M, 43.5);
       } else {
         doc.setFillColor(...DK); doc.rect(0, 0, PW, 3, 'F');
         doc.setFillColor(...LIME); doc.rect(0, 3, 40, 0.8, 'F');
@@ -2542,11 +2587,11 @@ window.BombasPDF = (function () {
       }
       doc.setDrawColor(...LINE); doc.setLineWidth(0.3); doc.line(M, 282, PW - M, 282);
       font('bold', 7.2, OL); doc.text('Grupo MP', M, 287);
-      font('normal', 7.2, GR); doc.text('· Ingeniería · Bombas de agua', M + doc.getTextWidth('Grupo MP') + 1.5, 287);
+      font('normal', 7.2, GR); doc.text('· Ingeniería · ' + K.pie, M + doc.getTextWidth('Grupo MP') + 1.5, 287);
       doc.text(`Generado el ${hoy}`, PW / 2, 287, { align: 'center' });
       font('bold', 7.2, INK); doc.text(`Página ${p} de ${n}`, PW - M, 287, { align: 'right' });
     }
-    return { doc, starts, multi, bombas };
+    return { doc, starts, multi, bombas, K };
   }
 
   async function generar(codes, ctx) {
@@ -2555,8 +2600,8 @@ window.BombasPDF = (function () {
     const logo = await U.loadLogo();
     let out = build(codes, ctx, logo, {});
     if (out.multi) out = build(codes, ctx, logo, out.starts);
-    if (!out.bombas.length) throw new Error('No hay bombas para el informe');
-    out.doc.save(out.multi ? `Informe_Bombas_GrupoMP_${U.hoy()}.pdf` : `Bomba_${out.bombas[0].code}.pdf`);
+    if (!out.bombas.length) throw new Error('No hay equipos para el informe');
+    out.doc.save(out.multi ? `Informe_${out.K.archivo}_GrupoMP_${U.hoy()}.pdf` : `${out.K.Uno}_${out.bombas[0].code}.pdf`);
   }
   return { generar };
 })();
@@ -3198,6 +3243,973 @@ window.crearModuloBombas = function (G) {
 
 </script>
 <script>
+/* ---- js/grupos-data.js ---- */
+/* Copia de respaldo de "Registro GRUPO" y "Mantenimiento GRUPO" (16/11/2026).
+   Solo se usa si la app no está conectada a Google Sheets o la planilla no responde.
+   Las descripciones más largas están resumidas: el texto completo se lee de la planilla. */
+window.GRUPOS_BASE = {
+"grupos": [
+{
+"codigo": "TDB-R-F-500-PER-C-08",
+"agricola": "TDB - REPRESA",
+"ubicacion": "27° 12' 36.6156\" S 65° 32' 57.2244\" W",
+"motorGen": "Perkins 2506A-E15TAG2 / Cramaco G2R315 MB/4",
+"integrador": "Palmero",
+"potencia": "500 KVA",
+"movil": "No",
+"ultMant": "",
+"ultFecha": "",
+"estado": "Fuera de servicio",
+"obs": "Problema en parte de combustion"
+},
+{
+"codigo": "TDB-R-F-500-PER-C-09",
+"agricola": "TDB - REPRESA",
+"ubicacion": "27° 12' 36.6156\" S 65° 32' 57.2244\" W",
+"motorGen": "Perkins 2506A-E15TAG2 / Cramaco G2R315 MB/4",
+"integrador": "Palmero",
+"potencia": "500 KVA",
+"movil": "No",
+"ultMant": "",
+"ultFecha": "",
+"estado": "Fuera de servicio",
+"obs": "Problema en parte de combustion"
+},
+{
+"codigo": "TDB-F-M-200-JD-C-06",
+"agricola": "TDB - FINCAS",
+"ubicacion": "27° 12' 36.9936\" S 65° 32' 57.2568\" W",
+"motorGen": "John Deere JO6068H195-6068HJ63 / Cramaco",
+"integrador": "Powgen",
+"potencia": "200 KVA",
+"movil": "Si",
+"ultMant": "Revisar con juan soria conexionado electrcio, se cambia llave compacta por una de la represa, reponer en la represa",
+"ultFecha": "29/9/2025",
+"estado": "Operativo",
+"obs": "Problema electrico, revisar pq salta la llave"
+},
+{
+"codigo": "TDB-F-M-200-JD-C-07",
+"agricola": "TDB - FINCAS",
+"ubicacion": "27° 12' 46.7568\" S 65° 33' 0.0864\" W",
+"motorGen": "John Deere JO6068H670976-6068HF120R02 / Cramaco",
+"integrador": "Powgen",
+"potencia": "200 KVA",
+"movil": "Si",
+"ultMant": "Reacondicionamiento de llave compacta, tarea realizando una barra de cobre nueva, tarea realizada por Juan Soria",
+"ultFecha": "26/6/2025",
+"estado": "Operativo",
+"obs": ""
+},
+{
+"codigo": "TDA-E-M-450-SC-C-04",
+"agricola": "TDA - EMPAQUE",
+"ubicacion": "TDA",
+"motorGen": "SCANIA DC1260 - A / Cramaco",
+"integrador": "Powgen",
+"potencia": "450 KVA",
+"movil": "Si",
+"ultMant": "Grupo arranca y tira una falla luego de un tiempo en funcionamiento",
+"ultFecha": "2/2/2026",
+"estado": "Operativo",
+"obs": ""
+},
+{
+"codigo": "TDA-R-F-450-SC-C-05",
+"agricola": "TDA - REPRESA",
+"ubicacion": "27° 11' 30.7104\" S 65° 32' 57.4332\" W",
+"motorGen": "SCANIA DC1270 - A / Cramaco",
+"integrador": "Powgen",
+"potencia": "450 KVA",
+"movil": "No",
+"ultMant": "Vendi del motor de combustion con problemas, paleta de ventilador torcida, se requiere trabajo de torneria",
+"ultFecha": "7/7/2025",
+"estado": "Operativo",
+"obs": "Problema en la generacion de tension"
+},
+{
+"codigo": "M-RF-M-110-CU-C-03",
+"agricola": "MARGESI - RIO FAMAILLA",
+"ubicacion": "26° 59' 35.5812\" S 65° 26' 44.034\" W",
+"motorGen": "Cummis C110 D5 4 / Cramaco",
+"integrador": "Power Generation",
+"potencia": "110 KVA",
+"movil": "Si",
+"ultMant": "",
+"ultFecha": "",
+"estado": "Operativo",
+"obs": ""
+},
+{
+"codigo": "TDF-RF-M-77-PER-W-10",
+"agricola": "TDF",
+"ubicacion": "25° 53' 51.8712\" S 64° 50' 59.3304\" W",
+"motorGen": "Perking ingles 1796-1500 / FG Wilson P77E",
+"integrador": "FG Wilson",
+"potencia": "77 KVA",
+"movil": "Si",
+"ultMant": "Generar con problema, solicitar diagnostico",
+"ultFecha": "26/12/2025",
+"estado": "Operativo",
+"obs": ""
+},
+{
+"codigo": "CMP-CE-F-450-SC-C-01",
+"agricola": "CMP Cevil",
+"ubicacion": "Ceramica Marcos Paz SRL - Planta Cevil",
+"motorGen": "SCANIA DC1260 - A06P / Cramaco",
+"integrador": "Powgen",
+"potencia": "450 KVA",
+"movil": "No",
+"ultMant": "",
+"ultFecha": "",
+"estado": "Operativo",
+"obs": ""
+},
+{
+"codigo": "CMP-YB-F-400-PER-W-02",
+"agricola": "CMP YB",
+"ubicacion": "Marcos Paz ceramic S.R.L.",
+"motorGen": "Perkins FGB061410 - U0255P / FG Wilson P400E3",
+"integrador": "FG Wilson",
+"potencia": "400 KVA",
+"movil": "No",
+"ultMant": "",
+"ultFecha": "",
+"estado": "Operativo",
+"obs": ""
+}
+],
+"mants": [
+{
+"codigo": "TDA-E-M-450-SC-C-04",
+"agricola": "TDA - EMPAQUE",
+"recep": "",
+"presupuesto": "",
+"descripcion": "Grupo arranca y tira una falla luego de un tiempo en funcionamiento",
+"fecha": "2/2/2026",
+"estado": "No iniciado",
+"obs": "",
+"key": {
+"fila": 4,
+"hash": "copiag00"
+}
+},
+{
+"codigo": "TDF-RF-M-77-PER-W-10",
+"agricola": "TDF",
+"recep": "",
+"presupuesto": "",
+"descripcion": "Generar con problema, solicitar diagnostico",
+"fecha": "26/12/2025",
+"estado": "En proceso",
+"obs": "Se realizo una primera visita se corrigio un problema en panel de control, y se realiza una segunda visita donde se analiza problema en regulador de tension, se necesita contar con un regulador de tension",
+"key": {
+"fila": 5,
+"hash": "copiag01"
+}
+},
+{
+"codigo": "TDB-F-M-200-JD-C-06",
+"agricola": "TDB - REPRESA",
+"recep": "",
+"presupuesto": "",
+"descripcion": "Revisar con juan soria conexionado electrcio, se cambia llave compacta por una de la represa, reponer en la represa",
+"fecha": "29/9/2025",
+"estado": "Finalizado",
+"obs": "Reponer llave compacta sacaa de represa para solucionar el problema",
+"key": {
+"fila": 6,
+"hash": "copiag02"
+}
+},
+{
+"codigo": "TDA-R-F-450-SC-C-05",
+"agricola": "TDA - REPRESA",
+"recep": "",
+"presupuesto": "",
+"descripcion": "Vendi del motor de combustion con problemas, paleta de ventilador torcida, se requiere trabajo de torneria",
+"fecha": "7/7/2025",
+"estado": "Finalizado",
+"obs": "Posible problemas que se ocaciono por el mal accionamiento del motor por falta del vendi",
+"key": {
+"fila": 7,
+"hash": "copiag03"
+}
+},
+{
+"codigo": "TDA-E-M-450-SC-C-04",
+"agricola": "TDA - REPRESA",
+"recep": "",
+"presupuesto": "",
+"descripcion": "Correccion en ciercuito electrico en tablero para poner operativo ambos equipos y sacar puente",
+"fecha": "3/7/2025",
+"estado": "Finalizado",
+"obs": "",
+"key": {
+"fila": 8,
+"hash": "copiag04"
+}
+},
+{
+"codigo": "TDB-F-M-200-JD-C-07",
+"agricola": "TDB - FINCAS",
+"recep": "1076",
+"presupuesto": "$140",
+"descripcion": "Reacondicionamiento de llave compacta, tarea realizando una barra de cobre nueva, tarea realizada por Juan Soria",
+"fecha": "26/6/2025",
+"estado": "Finalizado",
+"obs": "",
+"key": {
+"fila": 9,
+"hash": "copiag05"
+}
+},
+{
+"codigo": "TDA-R-F-450-SC-C-05",
+"agricola": "TDA - FINCA",
+"recep": "1083",
+"presupuesto": "$790",
+"descripcion": "Regulador de tension quemado se debe comprar regulador nuevo + MO",
+"fecha": "18/6/2025",
+"estado": "Finalizado",
+"obs": "",
+"key": {
+"fila": 10,
+"hash": "copiag06"
+}
+},
+{
+"codigo": "TDA-R-F-450-SC-C-05",
+"agricola": "TDA - FINCA",
+"recep": "",
+"presupuesto": "$250",
+"descripcion": "Rebobinar rotor de excitación. Montaje y prueba general",
+"fecha": "21/10/2024",
+"estado": "Finalizado",
+"obs": "",
+"key": {
+"fila": 11,
+"hash": "copiag07"
+}
+},
+{
+"codigo": "TDF-RF-M-77-PER-W-10",
+"agricola": "TDF",
+"recep": "",
+"presupuesto": "$800",
+"descripcion": "PROVISION DE UN REGULADOR DE TENSION: revisión del alternador y placa de diodos, colocación de regulador de tensión reforzado, puesta en marcha y calibración. (resumen: el texto completo está en la planilla)",
+"fecha": "24/9/2024",
+"estado": "Finalizado",
+"obs": "",
+"key": {
+"fila": 12,
+"hash": "copiag08"
+}
+},
+{
+"codigo": "TDA-R-F-450-SC-C-05",
+"agricola": "TDA - FINCA",
+"recep": "",
+"presupuesto": "$1.450",
+"descripcion": "FABRICACION DE VENTILADOR METALICO: desarmado completo de alternador, fabricación de ventilador para rotor de excitación y balanceo dinámico. (resumen: el texto completo está en la planilla)",
+"fecha": "13/8/2024",
+"estado": "Finalizado",
+"obs": "",
+"key": {
+"fila": 13,
+"hash": "copiag09"
+}
+},
+{
+"codigo": "TDA-R-F-450-SC-C-05",
+"agricola": "TDA - FINCA",
+"recep": "",
+"presupuesto": "$130",
+"descripcion": "REGULACION DE REGULADOR DE TENSION: revisión de rotor, campos de excitación y cableado; calibración del regulador de tensión. (resumen: el texto completo está en la planilla)",
+"fecha": "22/7/2024",
+"estado": "Finalizado",
+"obs": "",
+"key": {
+"fila": 14,
+"hash": "copiag10"
+}
+},
+{
+"codigo": "TDA-R-F-450-SC-C-05",
+"agricola": "TDA - FINCA",
+"recep": "",
+"presupuesto": "$984",
+"descripcion": "PROVISION DE UN REGULADOR DE TENSION: revisión de rotor y campos de excitación, cambio de regulador de tensión y pruebas con carga. (resumen: el texto completo está en la planilla)",
+"fecha": "16/7/2024",
+"estado": "Finalizado",
+"obs": "",
+"key": {
+"fila": 15,
+"hash": "copiag11"
+}
+},
+{
+"codigo": "TDB-F-M-200-JD-C-07",
+"agricola": "TDB - FINCAS",
+"recep": "",
+"presupuesto": "$3.200",
+"descripcion": "BOBINADO + REGULADOR + VENTILADOR: bobinado clase F de rotor y campos de excitación, cambio de regulador de tensión, rodamiento y ventilador, balanceo dinámico. (resumen: el texto completo está en la planilla)",
+"fecha": "14/6/2024",
+"estado": "Finalizado",
+"obs": "",
+"key": {
+"fila": 16,
+"hash": "copiag12"
+}
+},
+{
+"codigo": "TDA-R-F-450-SC-C-05",
+"agricola": "TDA - FINCA",
+"recep": "",
+"presupuesto": "$1.880",
+"descripcion": "Reparación del alternador CRAMACO por roce entre stator y rotor: lavado, secado y barnizado, cambio de rodamiento trasero y balanceo dinámico. (resumen: el texto completo está en la planilla)",
+"fecha": "30/8/2023",
+"estado": "Finalizado",
+"obs": "",
+"key": {
+"fila": 17,
+"hash": "copiag13"
+}
+}
+]
+};
+
+</script>
+<script>
+/* ---- js/grupos.js ---- */
+/* ARCHIVO GENERADO por tools/gen-grupos.py a partir de js/bombas.js — no editar a mano.
+   Módulo GRUPOS ELECTRÓGENOS — Grupo MP
+   Lee "Registro GRUPO" y "Mantenimiento GRUPO" y escribe en esas mismas hojas.
+   Se arma con las piezas compartidas de app.js: window.crearModuloGrupos(G). */
+window.crearModuloGrupos = function (G) {
+  'use strict';
+  const { html, useState, useEffect, useMemo, useRef, RC, I, Tile, Inset, Fld, ConfirmDel, tooltipStyle, U } = G;   // G.api: adjuntos
+  const TRABAJOS = ['No iniciado', 'En proceso', 'Finalizado'];
+  const TIPOS_M = ['Correctivo', 'Preventivo'];
+  function ChipM({ t }) { return t ? html`<span class=${'chip tipo-' + t.toLowerCase()}>${t}</span>` : null; }
+  const clsB = (e) => /^Operativ/.test(e) ? 'ok' : e === 'Fuera de servicio' ? 'bad' : 'na';
+  const clsT = (t) => t === 'Finalizado' ? 'ok' : t === 'En proceso' ? 'warn' : 'na';
+  const glowB = (e) => /^Operativ/.test(e) ? 'var(--ok)' : e === 'Fuera de servicio' ? 'var(--bad)' : 'var(--aqua)';
+  const short = (c) => { const p = U.parseCodeG(c || ''); return p.num ? p.unidad + '-' + p.num : (c || ''); };
+  const lim = (v) => (v == null || v === '—' || v === 's/d') ? '' : String(v);
+
+  function ChipB({ e }) { return html`<span class=${'chip ' + clsB(e)}><i></i>${e === 's/d' ? 'Sin estado' : e}</span>`; }
+  function ChipT({ t }) { return html`<span class=${'chip ' + clsT(t)}><i></i>${t}</span>`; }
+  const fechaDe = (m) => (m.fecha ? U.fmtF(m.fecha) : (m.fechaTxt || 'sin fecha'));
+  const sumUSD = (ms) => ms.reduce((a, m) => a + (m.usd || 0), 0);
+
+  /* =========================================================
+     01 · RESUMEN
+     ========================================================= */
+  function ResumenB({ grupos, mants, openB, pal, goTab }) {
+    const total = grupos.length;
+    const op = grupos.filter((b) => b.estado === 'Operativo').length;
+    const fs = grupos.filter((b) => b.estado === 'Fuera de servicio').length;
+    const pct = total ? Math.round((op / total) * 100) : 0;
+    const enProc = mants.filter((m) => m.trabajo === 'En proceso');
+    const porFinca = U.groupBy(grupos, U.fincaDe).map(([t, bs]) => ({ finca: t, op: bs.filter((b) => b.estado === 'Operativo').length, fs: bs.filter((b) => b.estado === 'Fuera de servicio').length, n: bs.length }))
+      .sort((a, b) => b.n - a.n);
+    const fincas = U.groupBy(grupos, U.fincaDe);
+    const ult = mants.filter((m) => m.fecha).slice(0, 5);
+    const pieData = [{ name: 'Operativos', value: op, fill: 'url(#gOpB)' }, { name: 'Fuera de servicio', value: fs, fill: 'url(#gFsB)' }];
+    if (total - op - fs > 0) pieData.push({ name: 'Sin estado', value: total - op - fs, fill: pal.na });
+    return html`<div class="bento sec">
+      <${Tile} c="s5 r2" title="Grupos registrados" glow="var(--aqua)" right=${html`<button class="chip warn click" onClick=${() => goTab('mant')}><i></i>${enProc.length} trabajo${enProc.length === 1 ? '' : 's'} en proceso</button>`}>
+        <div class="donut">
+          ${RC ? html`<${RC.ResponsiveContainer} width="100%" height="100%">
+            <${RC.PieChart}>
+              <defs>
+                <linearGradient id="gOpB" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color=${pal.lime}/><stop offset="100%" stop-color=${pal.aqua}/></linearGradient>
+                <linearGradient id="gFsB" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color=${pal.rose}/><stop offset="100%" stop-color=${pal.amber}/></linearGradient>
+              </defs>
+              <${RC.Pie} data=${pieData} dataKey="value" nameKey="name" innerRadius="68%" outerRadius="100%" paddingAngle=${4} cornerRadius=${10} stroke="none" startAngle=${90} endAngle=${-270}>
+                ${pieData.map((d) => html`<${RC.Cell} key=${d.name} fill=${d.fill}/>`)}
+              <//>
+              <${RC.Tooltip} contentStyle=${tooltipStyle} itemStyle=${{ color: 'var(--fg)' }}/>
+            <//>
+          <//>` : null}
+          <div class="center"><div><div class="big">${total}</div><div class="lbl">grupos</div></div></div>
+        </div>
+        <div class="kv" style=${{ gridTemplateColumns: '1fr 1fr' }}>
+          <${Inset} l="Operativos"><div class="disp" style=${{ fontSize: 28, fontWeight: 600, color: 'var(--ok)' }}>${op}</div><//>
+          <${Inset} l="Fuera de servicio"><div class="disp" style=${{ fontSize: 28, fontWeight: 600, color: 'var(--bad)' }}>${fs}</div><//>
+        </div>
+        <p class="note" style=${{ marginBottom: 0 }}>Estado según la columna “Estado Actual” de la hoja Registro GRUPO.</p>
+      <//>
+
+      <${Tile} c="s4" title="Disponibilidad de grupos" glow="var(--lime)" right=${html`<span class="chip ok"><i></i>${op} de ${total} operativos</span>`}>
+        <div class="pct-big"><span class="grad">${pct}</span><small class="grad">%</small></div>
+        <div class="bar bar-lg"><i style=${{ width: pct + '%' }}></i>${[25, 50, 75].map((t) => html`<b key=${t} style=${{ left: t + '%' }}></b>`)}</div>
+        <div class="row between" style=${{ marginTop: 8 }}><span class="lbl">0%</span><span class="lbl">${fs} fuera de servicio</span><span class="lbl">100%</span></div>
+      <//>
+
+      <${Tile} c="s3" title="Fuera de servicio" glow="var(--bad)">
+        <div class="big" style=${{ color: 'var(--bad)' }}>${fs}</div>
+        <div class="row" style=${{ marginTop: 14, gap: 6 }}>
+          ${grupos.filter((b) => b.estado === 'Fuera de servicio').map((b) => html`<button key=${b.code} class="chip bad click" onClick=${() => openB(b.code)}>${short(b.code)}</button>`)}
+          ${fs === 0 ? html`<span class="note">Ninguno 🎉</span>` : null}
+        </div>
+      <//>
+
+      <${Tile} c="s7" title="Grupos por unidad de negocio">
+        <div style=${{ height: 230 }}>
+          ${RC ? html`<${RC.ResponsiveContainer} width="100%" height="100%">
+            <${RC.BarChart} data=${porFinca} margin=${{ top: 6, right: 6, left: -22, bottom: 0 }} barCategoryGap="28%">
+              <defs>
+                <linearGradient id="bOpB" x1="0" y1="1" x2="0" y2="0"><stop offset="0%" stop-color=${pal.aqua}/><stop offset="100%" stop-color=${pal.lime}/></linearGradient>
+                <linearGradient id="bFsB" x1="0" y1="1" x2="0" y2="0"><stop offset="0%" stop-color=${pal.amber}/><stop offset="100%" stop-color=${pal.rose}/></linearGradient>
+              </defs>
+              <${RC.CartesianGrid} stroke=${pal.grid} vertical=${false}/>
+              <${RC.XAxis} dataKey="finca" tick=${{ fill: pal.axis, fontSize: 11, fontFamily: 'IBM Plex Mono, monospace' }} axisLine=${false} tickLine=${false}/>
+              <${RC.YAxis} allowDecimals=${false} tick=${{ fill: pal.axis, fontSize: 11 }} axisLine=${false} tickLine=${false}/>
+              <${RC.Tooltip} cursor=${{ fill: pal.grid }} contentStyle=${tooltipStyle}/>
+              <${RC.Legend} iconType="circle" wrapperStyle=${{ fontSize: 12 }}/>
+              <${RC.Bar} dataKey="op" name="Operativos" stackId="a" fill="url(#bOpB)" radius=${[0, 0, 8, 8]}/>
+              <${RC.Bar} dataKey="fs" name="Fuera de servicio" stackId="a" fill="url(#bFsB)" radius=${[8, 8, 0, 0]}/>
+            <//>
+          <//>` : null}
+        </div>
+      <//>
+
+      <${Tile} c="s8" title="Detalle por unidad de negocio" right=${html`<span class="lbl">Tocá un grupo para ver su ficha</span>`}>
+        <div class="groups">
+          ${fincas.map(([f, bs]) => html`<div class="inset" key=${f}>
+            <div class="row between" style=${{ marginBottom: 8 }}><span class="lbl">${f}</span><span class="lbl">${bs.filter((b) => b.estado === 'Operativo').length}/${bs.length} operativos</span></div>
+            <div class="bgrid">${bs.map((b) => html`<button key=${b.code} class="bchip" title=${b.code + ' · ' + b.potencia} onClick=${() => openB(b.code)}>
+              <span class=${'dot ' + clsB(b.estado)}></span><span class="mono">${short(b.code)}</span><span class="t">${b.pc.kva ? b.pc.kva + ' kVA' : ''}</span></button>`)}</div>
+          </div>`)}
+        </div>
+      <//>
+
+      <${Tile} c="s4" title="Últimos mantenimientos" right=${html`<button class="btn btn-sm" onClick=${() => goTab('mant')}>Ver todos</button>`}>
+        ${ult.length ? html`<div class="col">${ult.map((m) => html`<button class="log logbtn" key=${m.key.hash} onClick=${() => m.code && openB(m.code)}>
+            <div class="row between"><span class="lbl">${fechaDe(m)} · ${short(m.code || m.codigo)}</span><${ChipT} t=${m.trabajo}/></div>
+            <div class="t clamp3">${m.descripcion}</div>
+          </button>`)}</div>` : html`<div class="empty">Todavía no hay mantenimientos registrados.</div>`}
+      <//>
+
+      ${enProc.length ? html`<${Tile} c="s12" title="Trabajos en proceso" glow="var(--amber)" right=${html`<span class="chip warn"><i></i>${enProc.length}</span>`}>
+        <div class="groups">${enProc.map((m) => html`<button class="mant mant-btn" key=${m.key.hash} onClick=${() => m.code && openB(m.code)}>
+          <div class="row between"><span class="mono" style=${{ fontWeight: 500 }}>${m.code || m.codigo}</span><span class="lbl">${fechaDe(m)}</span></div>
+          <div class="t clamp3">${m.descripcion}</div>
+          ${m.obs ? html`<div class="note clamp3">Obs.: ${m.obs}</div>` : null}
+        </button>`)}</div>
+      <//>` : null}
+    </div>`;
+  }
+
+  /* =========================================================
+     02 · FICHA DE BOMBAS
+     ========================================================= */
+  function ListaB({ grupos, sel, setSel }) {
+    const [q, setQ] = useState('');
+    const [ff, setFf] = useState('');
+    const [ft, setFt] = useState('');
+    const [fe, setFe] = useState('');
+    const fincas = U.groupBy(grupos, U.fincaDe).map(([f]) => f);
+    const tipos = U.groupBy(grupos, (b) => b.potencia).map(([t]) => t);
+    const list = grupos.filter((b) => {
+      const s = (b.code + ' ' + b.agricola + ' ' + b.motor + ' ' + b.generador + ' ' + b.integrador + ' ' + b.potencia).toLowerCase();
+      if (q && !s.includes(q.toLowerCase())) return false;
+      if (ff && U.fincaDe(b) !== ff) return false;
+      if (ft && b.potencia !== ft) return false;
+      if (fe && b.estado !== fe) return false;
+      return true;
+    });
+    return html`<div class="col">
+      <input class="inp" placeholder="Buscar código, unidad, marca…" value=${q} onInput=${(e) => setQ(e.target.value)} aria-label="Buscar grupo"/>
+      <div class="fgrid">
+        <select class="inp" value=${ff} onChange=${(e) => setFf(e.target.value)} aria-label="Unidad"><option value="">Unidad</option>${fincas.map((f) => html`<option key=${f}>${f}</option>`)}</select>
+        <select class="inp" value=${fe} onChange=${(e) => setFe(e.target.value)} aria-label="Estado"><option value="">Estado</option><option>Operativo</option><option>Fuera de servicio</option></select>
+        <select class="inp full" value=${ft} onChange=${(e) => setFt(e.target.value)} aria-label="Aplicación"><option value="">Todas las potencias</option>${tipos.map((t) => html`<option key=${t}>${t}</option>`)}</select>
+      </div>
+      <div class="only-m">
+        <select class="inp" value=${sel} onChange=${(e) => setSel(e.target.value)} aria-label="Grupo">
+          ${(list.length ? list : grupos).map((b) => html`<option key=${b.code} value=${b.code}>${b.code} · ${b.estado}</option>`)}
+        </select>
+      </div>
+      <div class="list only-d">
+        ${list.map((b) => html`<button key=${b.code} class=${'well-row' + (b.code === sel ? ' sel' : '')} onClick=${() => setSel(b.code)}>
+          <span class=${'dot ' + clsB(b.estado)}></span>
+          <span class="grow"><span class="c">${b.code}</span><br/><span class="a">${b.agricola} · ${b.potencia}</span></span>
+        </button>`)}
+        ${list.length === 0 ? html`<div class="empty">Sin resultados.</div>` : null}
+      </div>
+    </div>`;
+  }
+
+  function FichaB({ grupos, mants, sel, setSel, canEdit, mutateB, toast, onPdf }) {
+    const b = grupos.find((x) => x.code === sel) || grupos[0];
+    const idx = grupos.indexOf(b);
+    const pc = b.pc;
+    const go = (d) => setSel(grupos[(idx + d + grupos.length) % grupos.length].code);
+    const [form, setForm] = useState(null);
+    useEffect(() => { if (form === 'editar') setForm(null); }, [b.code]);
+    useEffect(() => { if (!canEdit) setForm(null); }, [canEdit]);
+    const ms = mants.filter((m) => m.code === b.code);
+    const top = () => window.scrollTo({ top: 0, behavior: 'smooth' });
+    return html`<div class="split sec">
+      <aside class="tile static side">
+        <div class="th"><h3>Grupos</h3><div class="row" style=${{ gap: 8 }}><span class="lbl">${grupos.length}</span>
+          ${canEdit ? html`<button class="btn btn-sm btn-acc" onClick=${() => { setForm('nuevo'); top(); }}>+ Nuevo grupo</button>` : null}</div></div>
+        <${ListaB} grupos=${grupos} sel=${b.code} setSel=${setSel}/>
+      </aside>
+      <div class="bento">
+        ${form && canEdit ? html`<${GrupoForm} key=${form + (form === 'editar' ? b.code : '')} modo=${form} b=${form === 'editar' ? b : null} grupos=${grupos}
+          mutateB=${mutateB} toast=${toast} onClose=${(code) => { setForm(null); if (code) setSel(code); }}/>` : null}
+
+        <${Tile} c="s12" glow=${glowB(b.estado)}>
+          <div class="row between" style=${{ alignItems: 'flex-start' }}>
+            <div style=${{ minWidth: 0 }}>
+              <div class="lbl">${b.agricola}</div>
+              <h2 class="code-title">${b.code}</h2>
+              <div class="row" style=${{ marginTop: 8, gap: 6 }}><${ChipB} e=${b.estado}/><span class="chip plain">${b.potencia}</span><span class="chip plain">${b.movil === 'Sí' ? 'Móvil' : b.movil === 'No' ? 'Fijo' : 's/d'}</span>
+                ${ms.some((m) => m.trabajo === 'En proceso') ? html`<span class="chip warn"><i></i>Trabajo en proceso</span>` : null}</div>
+            </div>
+            <div class="row">
+              <div class="navbtns"><button class="btn" onClick=${() => go(-1)} aria-label="Grupo anterior">←</button>
+              <span class="btn mono" style=${{ cursor: 'default' }}>${idx + 1} / ${grupos.length}</span>
+              <button class="btn" onClick=${() => go(1)} aria-label="Grupo siguiente">→</button></div>
+              <button class="btn btn-acc" onClick=${() => onPdf([b.code])}>${I.pdf} PDF del grupo</button>
+            </div>
+          </div>
+          <div class="kv5" style=${{ marginTop: 16 }}>
+            <${Inset} l="Unidad" v=${pc.unidad || '—'}/>
+            <${Inset} l="Sector" v=${pc.sector || '—'}/>
+            <${Inset} l="Tipo" v=${pc.modo === 'M' ? 'M · móvil' : pc.modo === 'F' ? 'F · fijo' : (b.movil === 'Sí' ? 'Móvil' : b.movil === 'No' ? 'Fijo' : '—')}/>
+            <${Inset} l="Potencia" v=${b.potencia}/>
+            <${Inset} l="N° de grupo" v=${pc.num || '—'}/>
+          </div>
+        <//>
+
+        <${Tile} c="s7" title="Equipo" right=${canEdit ? html`<button class="btn btn-sm" onClick=${() => { setForm('editar'); top(); }}>Editar datos</button>` : null}>
+          <div class="kv">
+            <${Inset} l="Motor" v=${b.motor || 's/d'}/>
+            <${Inset} l="Generador" v=${b.generador || 's/d'}/>
+            <${Inset} l="Integrador" v=${b.integrador || '—'}/>
+            <${Inset} l="Potencia" v=${b.potencia || '—'}/>
+            <${Inset} l="Móvil" v=${b.movil}/>
+          </div>
+        <//>
+
+        <${Tile} c="s5" title="Ubicación">
+          ${b.lat != null ? html`<a class="loc-link" href=${U.mapsUrl(b.lat, b.lon)} target="_blank" rel="noopener">
+            <span class="loc-ico">${I.pin}</span>
+            <span class="grow"><b>Ver en Google Maps</b><span class="note">${b.agricola}</span></span>
+            <span class="loc-arrow">↗</span>
+          </a>` : b.gms ? html`<div class="loc-link" style=${{ cursor: 'default' }}><span class="loc-ico">${I.pin}</span><span class="grow"><b>${b.gms}</b><span class="note">${b.agricola} · sin coordenadas cargadas</span></span></div>`
+          : html`<div class="empty">Este grupo no tiene ubicación cargada en la hoja.</div>`}
+
+        <//>
+
+        <${EstadoB} b=${b} ms=${ms} canEdit=${canEdit} mutateB=${mutateB} toast=${toast}/>
+        <${MantsB} b=${b} ms=${ms} canEdit=${canEdit} mutateB=${mutateB} toast=${toast}/>
+      </div>
+    </div>`;
+  }
+
+  function EstadoB({ b, ms, canEdit, mutateB, toast }) {
+    const [edit, setEdit] = useState(false);
+    const [f, setF] = useState({});
+    const [busy, setBusy] = useState(false);
+    useEffect(() => setEdit(false), [b.code, canEdit]);
+    const ult = ms.find((m) => m.fecha) || null;
+    const open = () => { setF({ estado: b.estado === 's/d' ? 'Operativo' : b.estado, obs: b.obs || '' }); setEdit(true); };
+    const save = async () => {
+      setBusy(true);
+      const ok = await mutateB([{ op: 'put', col: 'grupos', id: b.code, data: { estado: f.estado, obs: f.obs.trim() } }]);
+      setBusy(false);
+      if (ok) { setEdit(false); toast('Estado del grupo guardado en Registro GRUPO.'); }
+    };
+    return html`<${Tile} c="s5" title="Estado actual" glow=${glowB(b.estado)} right=${!edit && canEdit ? html`<button class="btn btn-sm btn-acc" onClick=${open}>Actualizar</button>` : null}>
+      ${edit && canEdit ? html`<div class="col">
+        <div class="seg2">
+          <button class=${'ok' + (f.estado === 'Operativo' ? ' on' : '')} onClick=${() => setF(Object.assign({}, f, { estado: 'Operativo' }))}>Operativo</button>
+          <button class=${'bad' + (f.estado === 'Fuera de servicio' ? ' on' : '')} onClick=${() => setF(Object.assign({}, f, { estado: 'Fuera de servicio' }))}>Fuera de servicio</button>
+        </div>
+        <${Fld} l="Observaciones"><textarea class="inp" value=${f.obs} onInput=${(e) => setF(Object.assign({}, f, { obs: e.target.value }))} placeholder="Ej.: se retiró el arranque suave para la casilla 1"></textarea><//>
+        <div class="row" style=${{ justifyContent: 'flex-end' }}>
+          <button class="btn" onClick=${() => setEdit(false)}>Cancelar</button>
+          <button class="btn btn-acc" disabled=${busy} onClick=${save}>${busy ? 'Guardando…' : 'Guardar'}</button>
+        </div>
+      </div>` : html`<div class="col">
+        <div class="disp" style=${{ fontSize: 26, fontWeight: 600, color: `var(--${clsB(b.estado)})` }}>${b.estado === 's/d' ? 'Sin estado' : b.estado}</div>
+        ${b.obs ? html`<div class="inset"><div class="lbl">Observaciones</div><div style=${{ marginTop: 4, whiteSpace: 'pre-wrap' }}>${b.obs}</div></div>` : null}
+        <div class="inset">
+          <div class="lbl">Último mantenimiento</div>
+          ${ult ? html`<div class="row between" style=${{ marginTop: 4 }}><span class="mono">${U.fmtF(ult.fecha)}</span><${ChipT} t=${ult.trabajo}/></div>
+            <div class="clamp3" style=${{ marginTop: 4 }}>${ult.descripcion}</div>`
+          : b.ultMantReg ? html`<div class="mono" style=${{ marginTop: 4 }}>${b.ultFechaReg ? U.fmtF(b.ultFechaReg) : ''}</div><div class="clamp3">${b.ultMantReg}</div>`
+          : html`<div class="muted" style=${{ marginTop: 4 }}>Sin mantenimientos registrados.</div>`}
+        </div>
+      </div>`}
+    <//>`;
+  }
+
+  function MantForm({ b, grupos, m, mutateB, toast, onClose }) {
+    const nuevo = !m;
+    const [f, setF] = useState(() => ({
+      code: b ? b.code : '', fecha: m ? (m.fecha || '') : U.hoy(), trabajo: m ? (TRABAJOS.includes(m.trabajo) ? m.trabajo : 'En proceso') : 'En proceso',
+      descripcion: m ? m.descripcion : '', recep: m ? m.recep : '', usd: m && m.usd != null ? String(m.usd) : '', obs: m ? m.obs : '', tipoM: m ? (m.tipoM || '') : ''
+    }));
+    const [busy, setBusy] = useState(false);
+    const [files, setFiles] = useState([]);
+    const fileRef = useRef(null);
+    const MAX_MB = 10;
+    const addFiles = (ev) => {
+      const nuevos = Array.from(ev.target.files || []);
+      ev.target.value = '';
+      const ok = [];
+      for (const fl of nuevos) {
+        if (!/\.(pdf|docx?)$/i.test(fl.name)) { toast('“' + fl.name + '” no es PDF ni Word.', 'bad'); continue; }
+        if (fl.size > MAX_MB * 1024 * 1024) { toast('“' + fl.name + '” supera los ' + MAX_MB + ' MB.', 'bad'); continue; }
+        ok.push(fl);
+      }
+      if (ok.length) setFiles(files.concat(ok));
+    };
+    const set = (k) => (e) => setF(Object.assign({}, f, { [k]: e.target.value }));
+    const grupo = grupos.find((x) => x.code === f.code);
+    const save = async () => {
+      if (nuevo && !grupo) return toast('Elegí el grupo.', 'bad');
+      if (!f.descripcion.trim()) return toast('Escribí la descripción del trabajo.', 'bad');
+      if (nuevo && !f.fecha) return toast('Cargá la fecha.', 'bad');
+      if (nuevo && !f.tipoM) return toast('Indicá si el mantenimiento es correctivo o preventivo.', 'bad');
+      const usdN = f.usd.trim() === '' ? '' : U.usd(f.usd);
+      if (usdN === null) return toast('El presupuesto tiene que ser un número (USD).', 'bad');
+      const data = { descripcion: f.descripcion.trim(), estado: f.trabajo, recep: f.recep.trim(), presupuesto: usdN, obs: f.obs.trim() };
+      if (f.fecha) data.fecha = f.fecha;
+      if (f.tipoM || (m && m.tipoM)) data.tipo = f.tipoM;
+      if (nuevo) { data.codigo = grupo.code; data.agricola = grupo.agricola; } else { data.key = m.key; data.codigo = m.codigo; }
+      setBusy('Guardando…');
+      const ok = await mutateB([{ op: 'put', col: 'mantg', id: nuevo ? 'nuevo' : m.key.hash, data }]);
+      if (!ok) return setBusy(false);
+      // Los archivos se suben después de guardar la fila, de a uno.
+      let fallo = '';
+      if (files.length) {
+        const key = ok.mantKey || (m && m.key);
+        if (!key) fallo = 'no se pudo ubicar la fila en la hoja';
+        for (let i = 0; i < files.length && !fallo; i++) {
+          setBusy(`Subiendo archivo ${i + 1} de ${files.length}…`);
+          try { await G.api.subir(key, files[i], 'grupos'); } catch (err) { fallo = err.message || 'error al subir'; }
+        }
+        G.api.recargar();
+      }
+      setBusy(false);
+      if (fallo) toast('El mantenimiento se guardó, pero no se pudo adjuntar un archivo: ' + fallo, 'bad');
+      else toast((nuevo ? 'Mantenimiento agregado a la hoja' : 'Mantenimiento actualizado en la hoja') + (files.length ? ` con ${files.length} adjunto${files.length === 1 ? '' : 's'}.` : '.'));
+      onClose(nuevo ? grupo.code : null);
+    };
+    return html`<div class="mant-form">
+      <div class="row between" style=${{ marginBottom: 10 }}>
+        <b>${nuevo ? 'Nuevo mantenimiento' : 'Editar mantenimiento'}</b>
+        <span class="lbl">Se guarda en la hoja Mantenimiento GRUPO</span>
+      </div>
+      <div class="fgrid" style=${{ gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))' }}>
+        ${nuevo && !b ? html`<${Fld} l="Grupo *"><select class="inp mono" value=${f.code} onChange=${set('code')}>
+          <option value="">Elegí…</option>${grupos.map((x) => html`<option key=${x.code} value=${x.code}>${x.code}</option>`)}</select><//>` : null}
+        <${Fld} l=${nuevo ? 'Fecha *' : 'Fecha'}><input type="date" class="inp" value=${f.fecha} onInput=${set('fecha')}/><//>
+        <div class="fld"><span>${nuevo ? 'Tipo de mantenimiento *' : 'Tipo de mantenimiento'}</span>
+          <div class="seg2">${TIPOS_M.map((t) => html`<button key=${t} type="button" class=${'tipo-' + t.toLowerCase() + (f.tipoM === t ? ' on' : '')}
+            onClick=${() => setF(Object.assign({}, f, { tipoM: !nuevo && f.tipoM === t ? '' : t }))}>${t}</button>`)}</div></div>
+        <${Fld} l="Estado del trabajo"><select class="inp" value=${f.trabajo} onChange=${set('trabajo')}>${TRABAJOS.map((t) => html`<option key=${t}>${t}</option>`)}</select><//>
+        <${Fld} l="N° recepción / orden de compra"><input class="inp" value=${f.recep} onInput=${set('recep')}/><//>
+        <${Fld} l="Presupuesto (USD)"><input class="inp" inputmode="decimal" value=${f.usd} onInput=${set('usd')} placeholder="0"/><//>
+      </div>
+      <div class="fgrid" style=${{ marginTop: 10 }}>
+        <${Fld} l="Descripción del mantenimiento *" full><textarea class="inp" value=${f.descripcion} onInput=${set('descripcion')} placeholder="Qué se hizo, qué se cambió, quién lo hizo…"></textarea><//>
+        <${Fld} l="Observaciones" full><textarea class="inp" value=${f.obs} onInput=${set('obs')} placeholder="Pendientes, recomendaciones…"></textarea><//>
+      </div>
+      <div class="fld" style=${{ marginTop: 10 }}><span>Adjuntos · OT, presupuestos (PDF o Word, hasta ${MAX_MB} MB)</span>
+        ${G.api.conectado ? html`<div class="adj-box">
+          ${m && m.adjuntos.length ? m.adjuntos.map((a) => html`<span class="adj" key=${a.url}>${I.clip}<a href=${a.url} target="_blank" rel="noopener">${a.name}</a><span class="lbl">ya adjunto</span></span>`) : null}
+          ${files.map((fl, i) => html`<span class="adj nuevo" key=${i}>${I.clip}<span>${fl.name}</span><span class="lbl">${(fl.size / 1048576).toFixed(1)} MB</span>
+            <button type="button" class="btn btn-sm btn-ghost" title="Quitar" onClick=${() => setFiles(files.filter((x, k) => k !== i))}>✕</button></span>`)}
+          <button type="button" class="btn btn-sm" onClick=${() => fileRef.current && fileRef.current.click()}>${I.clip} Elegir archivos…</button>
+          <input ref=${fileRef} type="file" class="sr" multiple accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange=${addFiles}/>
+        </div>
+        <div class="note">Se guardan en tu Google Drive y el enlace queda en la hoja. Los abre quien tenga acceso a esa carpeta de Drive.</div>`
+        : html`<div class="note">Para adjuntar archivos la página tiene que estar conectada a la planilla (en GitHub lo está).</div>`}
+      </div>
+      ${!nuevo && !m.fecha && m.fechaTxt ? html`<div class="warn" style=${{ marginTop: 6 }}>En la hoja la fecha figura como “${m.fechaTxt}”. Si elegís una fecha acá, se corrige.</div>` : null}
+      <div class="row" style=${{ justifyContent: 'flex-end', marginTop: 10 }}>
+        <button class="btn" onClick=${() => onClose(null)}>Cancelar</button>
+        <button class="btn btn-acc" disabled=${!!busy} onClick=${save}>${busy || (nuevo ? 'Agregar mantenimiento' : 'Guardar cambios')}</button>
+      </div>
+    </div>`;
+  }
+
+  function MantItem({ m, canEdit, onEdit, onDel, showCode, onOpen }) {
+    const [quitando, setQuitando] = useState('');
+    const quitar = async (a) => { setQuitando(a.url); await G.api.quitar(m.key, a.url, 'grupos'); setQuitando(''); };
+    return html`<div class="mant">
+      <div class="row between" style=${{ gap: 8 }}>
+        <span class="row" style=${{ gap: 8 }}>
+          <span class="mono" style=${{ fontWeight: 500 }}>${fechaDe(m)}</span>
+          ${showCode ? html`<button class="chip plain click" onClick=${onOpen}>${m.code || m.codigo}</button>` : null}
+          <${ChipT} t=${m.trabajo}/>
+          <${ChipM} t=${m.tipoM}/>
+        </span>
+        <span class="row" style=${{ gap: 6 }}>
+          ${m.usd ? html`<span class="mono usd">${U.fmtUSD(m.usd)}</span>` : null}
+          ${canEdit ? html`<button class="btn btn-sm btn-ghost" title="Editar" onClick=${onEdit}>✎</button><${ConfirmDel} onYes=${onDel}/>` : null}
+        </span>
+      </div>
+      <div class="t">${m.descripcion}</div>
+      ${m.obs ? html`<div class="note"><b>Obs.:</b> ${m.obs}</div>` : null}
+      ${m.adjuntos.length ? html`<div class="adj-box">${m.adjuntos.map((a) => html`<span class="adj" key=${a.url} style=${{ opacity: quitando === a.url ? 0.4 : 1 }}>${I.clip}
+        <a href=${a.url} target="_blank" rel="noopener">${a.name} ↗</a>
+        ${canEdit && G.api.conectado ? html`<${ConfirmDel} onYes=${() => quitar(a)}/>` : null}</span>`)}</div>` : null}
+      <div class="lbl" style=${{ marginTop: 2 }}>${m.recep ? 'Recep./OC ' + m.recep : ''}${m.code && U.normCode(m.codigo) !== m.code ? (m.recep ? ' · ' : '') + 'en la hoja figura como ' + m.codigo : ''}</div>
+    </div>`;
+  }
+
+  function MantsB({ b, ms, canEdit, mutateB, toast }) {
+    const [form, setForm] = useState(null); // null | 'nuevo' | mant
+    useEffect(() => setForm(null), [b.code, canEdit]);
+    const del = async (m) => { const ok = await mutateB([{ op: 'del', col: 'mantg', id: m.key.hash, data: { key: m.key } }]); if (ok) toast('Mantenimiento borrado de la hoja.'); };
+    const tot = sumUSD(ms);
+    return html`<${Tile} c="s7" title="Mantenimientos" right=${html`<div class="row" style=${{ gap: 6 }}>
+        <span class="chip plain mono">${ms.length} trabajo${ms.length === 1 ? '' : 's'}${tot ? ' · ' + U.fmtUSD(tot) : ''}</span>
+        ${canEdit && !form ? html`<button class="btn btn-sm btn-acc" onClick=${() => setForm('nuevo')}>+ Registrar</button>` : null}</div>`}>
+      ${form && canEdit ? html`<${MantForm} key=${form === 'nuevo' ? 'n' : form.key.hash} b=${b} grupos=${[b]} m=${form === 'nuevo' ? null : form} mutateB=${mutateB} toast=${toast} onClose=${() => setForm(null)}/>` : null}
+      ${ms.length ? html`<div class="col" style=${{ marginTop: form ? 12 : 0 }}>${ms.map((m) => html`<${MantItem} key=${m.key.hash} m=${m} canEdit=${canEdit} onEdit=${() => setForm(m)} onDel=${() => del(m)}/>`)}</div>`
+        : html`<div class="empty">${canEdit ? html`Sin mantenimientos. Tocá <b>+ Registrar</b> o cargalo directamente en la hoja.` : 'Sin mantenimientos registrados para este grupo.'}</div>`}
+    <//>`;
+  }
+
+  function GrupoForm({ modo, b, grupos, mutateB, toast, onClose }) {
+    const nuevo = modo === 'nuevo';
+    const ini = {
+      code: nuevo ? '' : b.code, agricola: nuevo ? '' : lim(b.agricola), gms: nuevo ? '' : lim(b.gms), motor: nuevo ? '' : lim(b.motor), generador: nuevo ? '' : lim(b.generador),
+      integrador: nuevo ? '' : lim(b.integrador), potencia: nuevo ? '' : lim(b.potencia), movil: nuevo ? '' : (b.movil === 'Sí' ? 'Si' : b.movil === 'No' ? 'No' : ''),
+      estado: nuevo ? 'Operativo' : (b.estado === 's/d' ? 'Operativo' : b.estado), obs: nuevo ? '' : lim(b.obs)
+    };
+    const [f, setF] = useState(ini);
+    const [busy, setBusy] = useState(false);
+    const set = (k) => (e) => setF(Object.assign({}, f, { [k]: e.target.value }));
+    const code = U.normCode(f.code);
+    const pc = U.parseCodeG(code);
+    const ll = U.parseGMS(f.gms);
+    const dup = nuevo && code && grupos.some((x) => x.code === code);
+    const save = async () => {
+      if (!code) return toast('Poné el código del grupo.', 'bad');
+      if (dup) return toast('Ya existe un grupo con ese código.', 'bad');
+      if (!f.agricola.trim()) return toast('Poné la unidad de negocio.', 'bad');
+      // Solo se mandan los campos que cambiaron, para no reescribir celdas de la hoja sin necesidad.
+      const d = {};
+      const ch = (k) => nuevo || f[k].trim() !== String(ini[k]).trim();
+      if (ch('agricola')) d.agricola = f.agricola.trim();
+      if (ch('gms')) d.ubicacion = f.gms.trim();
+      if (ch('motor') || ch('generador')) d.motorGen = [f.motor.trim(), f.generador.trim()].filter(Boolean).join(' / ');
+      if (ch('integrador')) d.integrador = f.integrador.trim();
+      if (ch('potencia')) d.potencia = f.potencia.trim();
+      if (ch('movil')) d.movil = f.movil;
+      if (ch('estado')) d.estado = f.estado;
+      if (ch('obs')) d.obs = f.obs.trim();
+      if (!Object.keys(d).length) return onClose(null);
+      setBusy(true);
+      const ok = await mutateB([{ op: 'put', col: 'grupos', id: code, data: d }]);
+      setBusy(false);
+      if (ok) { toast(nuevo ? 'Grupo agregado a Registro GRUPO.' : 'Datos del grupo guardados.'); onClose(code); }
+    };
+    return html`<${Tile} c="s12" cn="static" glow="var(--lime)" title=${nuevo ? 'Nuevo grupo' : 'Editar datos del grupo'} right=${html`<span class="lbl">Se guarda en la hoja Registro GRUPO</span>`}>
+      <div class="fgrid" style=${{ gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))' }}>
+        <${Fld} l="Código de equipo *"><input class="inp mono" value=${f.code} disabled=${!nuevo} onInput=${set('code')} placeholder="UNIDAD-SECTOR-F/M-KVA-MOTOR-GEN-N°"/><//>
+        <${Fld} l="Unidad de negocio *"><input class="inp" value=${f.agricola} onInput=${set('agricola')} placeholder="TDA - REPRESA"/><//>
+        <${Fld} l="Estado actual"><select class="inp" value=${f.estado} onChange=${set('estado')}><option>Operativo</option><option>Fuera de servicio</option></select><//>
+        <${Fld} l="Ubicación (coordenadas o descripción)"><input class="inp" value=${f.gms} onInput=${set('gms')}/><//>
+        <${Fld} l="Motor"><input class="inp" value=${f.motor} onInput=${set('motor')} placeholder="SCANIA DC1260 - A"/><//>
+        <${Fld} l="Generador"><input class="inp" value=${f.generador} onInput=${set('generador')} placeholder="Cramaco"/><//>
+        <${Fld} l="Integrador"><input class="inp" value=${f.integrador} onInput=${set('integrador')} placeholder="Powgen"/><//>
+        <${Fld} l="Potencia"><input class="inp" value=${f.potencia} onInput=${set('potencia')} placeholder="450 KVA"/><//>
+        <${Fld} l="Móvil"><select class="inp" value=${f.movil} onChange=${set('movil')}><option value="">—</option><option value="Si">Sí</option><option value="No">No</option></select><//>
+        <${Fld} l="Observaciones"><input class="inp" value=${f.obs} onInput=${set('obs')}/><//>
+      </div>
+      <div class="row between" style=${{ marginTop: 12 }}>
+        <div class="note">
+          ${code ? (pc.modo ? html`<span class="mono">${pc.unidad}</span> · ${pc.modo === 'M' ? 'móvil' : 'fijo'} · ${pc.kva} kVA${U.MOTORES_G[pc.motor] ? ' · motor ' + U.MOTORES_G[pc.motor] : ''}${U.GENERADORES_G[pc.gen] ? ' · generador ' + U.GENERADORES_G[pc.gen] : ''}${pc.num ? ' · N° ' + pc.num : ''}` : 'código con formato no reconocido')
+            : 'Formato: UNIDAD-SECTOR-(F fijo | M móvil)-kVA-MOTOR-GENERADOR-N°   ej. TDA-R-F-450-SC-C-05'}
+          ${f.gms && ll ? html` · coordenadas ✓` : null}
+          ${dup ? html` · <span class="warn">el código ya existe</span>` : null}
+        </div>
+        <div class="row">
+          <button class="btn" onClick=${() => onClose(null)}>Cancelar</button>
+          <button class="btn btn-acc" disabled=${busy} onClick=${save}>${busy ? 'Guardando…' : (nuevo ? 'Agregar grupo' : 'Guardar cambios')}</button>
+        </div>
+      </div>
+      ${!nuevo ? html`<p class="note" style=${{ marginBottom: 0 }}>Para dar de baja un grupo, borrá su fila en la hoja Registro GRUPO.</p>` : null}
+    <//>`;
+  }
+
+  /* =========================================================
+     03 · MANTENIMIENTOS (todos los grupos)
+     ========================================================= */
+  function MantsTab({ grupos, mants, canEdit, mutateB, toast, openB, pal }) {
+    const [q, setQ] = useState('');
+    const [ff, setFf] = useState('');
+    const [ft, setFt] = useState('');
+    const [fa, setFa] = useState('');
+    const [fm, setFm] = useState('');
+    const [form, setForm] = useState(null);
+    useEffect(() => { if (!canEdit) setForm(null); }, [canEdit]);
+    const bIdx = useMemo(() => new Map(grupos.map((b) => [b.code, b])), [grupos]);
+    const fincas = U.groupBy(grupos, U.fincaDe).map(([f]) => f);
+    const anios = Array.from(new Set(mants.filter((m) => m.fecha).map((m) => m.fecha.slice(0, 4)))).sort().reverse();
+    const base = mants.filter((m) => {            // todos los filtros menos el año
+      const b = m.code ? bIdx.get(m.code) : null;
+      const s = (m.codigo + ' ' + (m.code || '') + ' ' + m.descripcion + ' ' + m.obs + ' ' + m.recep + ' ' + m.agricola).toLowerCase();
+      if (q && !s.includes(q.toLowerCase())) return false;
+      if (ff && (b ? U.fincaDe(b) : String(m.agricola).split(' - ')[0].toUpperCase()) !== ff) return false;
+      if (ft && m.trabajo !== ft) return false;
+      if (fm && (fm === 'Sin clasificar' ? m.tipoM !== '' : m.tipoM !== fm)) return false;
+      return true;
+    });
+    const list = fa ? base.filter((m) => m.fecha && m.fecha.slice(0, 4) === fa) : base;
+    const delAnio = (a) => base.filter((m) => m.fecha && m.fecha.startsWith(a));
+    const anioRef = fa || U.hoy().slice(0, 4);     // año que se destaca: el filtrado o el actual
+    const anioPrev = String(Number(anioRef) - 1);
+    const gasto = sumUSD(delAnio(anioRef)), gastoPrev = sumUSD(delAnio(anioPrev));
+    const sinMonto = delAnio(anioRef).filter((m) => m.usd == null).length;
+    const dif = gastoPrev ? Math.round(((gasto - gastoPrev) / gastoPrev) * 100) : null;
+    const enProc = list.filter((m) => m.trabajo === 'En proceso').length;
+    const porAnio = Array.from(new Set(base.filter((m) => m.fecha).map((m) => m.fecha.slice(0, 4)))).sort()
+      .map((a) => ({ anio: a, usd: Math.round(sumUSD(delAnio(a))), n: delAnio(a).length }));
+    const del = async (m) => { const ok = await mutateB([{ op: 'del', col: 'mantg', id: m.key.hash, data: { key: m.key } }]); if (ok) toast('Mantenimiento borrado de la hoja.'); };
+    const filtros = q || ff || ft || fa || fm;
+    const nCorr = list.filter((m) => m.tipoM === 'Correctivo').length, nPrev = list.filter((m) => m.tipoM === 'Preventivo').length, nSin = list.length - nCorr - nPrev;
+    return html`<div class="bento sec">
+      <${Tile} c="s3" title="Trabajos"><div class="big">${list.length}</div><div class="note">${filtros ? 'con los filtros elegidos' : 'registrados en la hoja'}</div>
+        <div class="row" style=${{ gap: 6, marginTop: 8 }}>
+          <span class="chip tipo-correctivo">${nCorr} correctivo${nCorr === 1 ? '' : 's'}</span><span class="chip tipo-preventivo">${nPrev} preventivo${nPrev === 1 ? '' : 's'}</span>
+          ${nSin ? html`<span class="chip plain">${nSin} sin clasificar</span>` : null}
+        </div><//>
+      <${Tile} c="s3" title="En proceso" glow="var(--amber)"><div class="big" style=${{ color: 'var(--amber)' }}>${enProc}</div><div class="note">sin terminar</div><//>
+      <${Tile} c="s3" title=${'Gasto ' + anioRef} glow="var(--lime)"><div class="big grad" style=${{ fontSize: 'clamp(34px,4vw,48px)' }}>${U.fmtUSD(gasto).replace('USD ', 'U$S ')}</div>
+        <div class="note">${gasto && gastoPrev ? `${dif > 0 ? '▲ ' + dif : dif < 0 ? '▼ ' + Math.abs(dif) : '= 0'}% vs ${anioPrev} (${U.fmtUSD(gastoPrev)})` : gastoPrev ? `${anioPrev}: ${U.fmtUSD(gastoPrev)}` : `sin gasto registrado en ${anioPrev}`}</div>
+        ${sinMonto ? html`<div class="note" style=${{ color: 'var(--amber)' }}>${sinMonto} de ${delAnio(anioRef).length} trabajos de ${anioRef} sin presupuesto cargado</div>` : null}<//>
+      <${Tile} c="s3" title="Grupos intervenidos"><div class="big">${new Set(list.map((m) => m.code || m.codigo)).size}</div><div class="note">de ${grupos.length} registrados</div><//>
+
+      <${Tile} c="s12" title="Gasto en mantenimiento por año" right=${html`<span class="lbl">Tocá un año para filtrar</span>`}>
+        ${porAnio.length && RC ? html`<div style=${{ height: 200 }}>
+          <${RC.ResponsiveContainer} width="100%" height="100%">
+            <${RC.BarChart} data=${porAnio} margin=${{ top: 6, right: 6, left: 6, bottom: 0 }} barCategoryGap="30%">
+              <defs><linearGradient id="bUsd" x1="0" y1="1" x2="0" y2="0"><stop offset="0%" stop-color=${pal.aqua}/><stop offset="100%" stop-color=${pal.lime}/></linearGradient></defs>
+              <${RC.CartesianGrid} stroke=${pal.grid} vertical=${false}/>
+              <${RC.XAxis} dataKey="anio" tick=${{ fill: pal.axis, fontSize: 11, fontFamily: 'IBM Plex Mono, monospace' }} axisLine=${false} tickLine=${false}/>
+              <${RC.YAxis} tick=${{ fill: pal.axis, fontSize: 11 }} axisLine=${false} tickLine=${false} tickFormatter=${(v) => 'U$S ' + U.fmtN(v, 0)} width=${92}/>
+              <${RC.Tooltip} cursor=${{ fill: pal.grid }} contentStyle=${tooltipStyle} formatter=${(v, n, p) => [U.fmtUSD(v) + ' · ' + p.payload.n + ' trabajos', 'Gasto']}/>
+              <${RC.Bar} dataKey="usd" name="Gasto" fill="url(#bUsd)" radius=${[8, 8, 0, 0]} cursor="pointer" onClick=${(d) => setFa(fa === d.anio ? '' : d.anio)}>
+                ${porAnio.map((d) => html`<${RC.Cell} key=${d.anio} fillOpacity=${!fa || d.anio === fa ? 1 : 0.35}/>`)}
+              <//>
+            <//>
+          <//>
+        </div>` : html`<div class="empty">Sin trabajos con fecha para graficar.</div>`}
+      <//>
+
+      <${Tile} c="s12" cn="static" title="Registro de mantenimientos" right=${canEdit && !form ? html`<button class="btn btn-sm btn-acc" onClick=${() => setForm('nuevo')}>+ Nuevo mantenimiento</button>` : null}>
+        ${form && canEdit ? html`<div style=${{ marginBottom: 14 }}><${MantForm} key=${form === 'nuevo' ? 'n' : form.key.hash} b=${form !== 'nuevo' && form.code ? bIdx.get(form.code) : null} grupos=${grupos}
+          m=${form === 'nuevo' ? null : form} mutateB=${mutateB} toast=${toast} onClose=${() => setForm(null)}/></div>` : null}
+        <div class="filters">
+          <input class="inp" placeholder="Buscar en descripción, código, OC…" value=${q} onInput=${(e) => setQ(e.target.value)}/>
+          <select class="inp" value=${ff} onChange=${(e) => setFf(e.target.value)}><option value="">Unidad</option>${fincas.map((f) => html`<option key=${f}>${f}</option>`)}</select>
+          <select class="inp" value=${ft} onChange=${(e) => setFt(e.target.value)}><option value="">Estado del trabajo</option>${TRABAJOS.map((t) => html`<option key=${t}>${t}</option>`)}</select>
+          <select class="inp" value=${fm} onChange=${(e) => setFm(e.target.value)}><option value="">Tipo</option>${TIPOS_M.map((t) => html`<option key=${t}>${t}</option>`)}<option>Sin clasificar</option></select>
+          <select class="inp" value=${fa} onChange=${(e) => setFa(e.target.value)}><option value="">Año</option>${anios.map((a) => html`<option key=${a}>${a}</option>`)}</select>
+          ${filtros ? html`<button class="btn btn-sm" onClick=${() => { setQ(''); setFf(''); setFt(''); setFa(''); setFm(''); }}>Limpiar</button>` : null}
+        </div>
+        <div class="col" style=${{ marginTop: 12 }}>
+          ${list.map((m) => html`<${MantItem} key=${m.key.hash} m=${m} showCode canEdit=${canEdit} onOpen=${() => m.code && openB(m.code)}
+            onEdit=${() => { setForm(m); window.scrollTo({ top: 0, behavior: 'smooth' }); }} onDel=${() => del(m)}/>`)}
+          ${!list.length ? html`<div class="empty">No hay trabajos con esos filtros.</div>` : null}
+        </div>
+        <p class="note" style=${{ marginBottom: 0 }}>Esta lista es la hoja “Mantenimiento GRUPO”: lo que cargues a mano en la planilla aparece acá al tocar <b>Recargar</b>, y lo que cargues acá se escribe en la hoja.</p>
+      <//>
+    </div>`;
+  }
+
+  /* =========================================================
+     04 · INFORME
+     ========================================================= */
+  function InformeB({ grupos, mants, openB, onPdf, logoUrl }) {
+    const [selSet, setSelSet] = useState(() => new Set(grupos.map((b) => b.code)));
+    const known = useRef(new Set(grupos.map((b) => b.code)));
+    useEffect(() => {
+      const nuevos = grupos.filter((b) => !known.current.has(b.code)).map((b) => b.code);
+      if (!nuevos.length) return;
+      nuevos.forEach((c) => known.current.add(c));
+      setSelSet((s) => new Set([...s, ...nuevos]));
+    }, [grupos]);
+    const chosen = grupos.filter((b) => selSet.has(b.code));
+    const op = chosen.filter((b) => b.estado === 'Operativo').length;
+    const fs = chosen.filter((b) => b.estado === 'Fuera de servicio').length;
+    const pct = chosen.length ? Math.round((op / chosen.length) * 100) : 0;
+    const toggle = (c) => { const n = new Set(selSet); n.has(c) ? n.delete(c) : n.add(c); setSelSet(n); };
+    const tipos = U.groupBy(grupos, (b) => b.potencia).map(([t]) => t);
+    const enProc = new Set(mants.filter((m) => m.trabajo === 'En proceso' && m.code).map((m) => m.code));
+    const msDe = (c) => mants.filter((m) => m.code === c);
+    const [busy, setBusy] = useState(false);
+    const gen = async () => { setBusy(true); try { await onPdf(chosen.map((b) => b.code)); } finally { setBusy(false); } };
+    return html`<div class="bento sec">
+      <${Tile} c="s12" glow="var(--lime)">
+        <div class="row between" style=${{ alignItems: 'flex-start' }}>
+          <div>
+            <div class="lbl">Informe · ${U.fmtF(U.hoy())}</div>
+            <h2 class="h1" style=${{ fontSize: 'clamp(22px,3.4vw,34px)' }}>Estado de <span class="grad">grupos electrógenos</span></h2>
+            <p class="muted" style=${{ margin: 0 }}>${chosen.length} grupo${chosen.length === 1 ? '' : 's'}: ${op} operativa${op === 1 ? '' : 's'} y ${fs} fuera de servicio · ${pct}% de disponibilidad.</p>
+          </div>
+          <div class="plate plate-lg">${logoUrl ? html`<img src=${logoUrl} alt="Grupo MP"/>` : html`<b>GMP</b>`}</div>
+        </div>
+      <//>
+      <${Tile} c="s3" title="Grupos incluidos"><div class="big">${chosen.length}</div><//>
+      <${Tile} c="s3" title="Operativos" glow="var(--ok)"><div class="big" style=${{ color: 'var(--ok)' }}>${op}</div><//>
+      <${Tile} c="s3" title="Fuera de servicio" glow="var(--bad)"><div class="big" style=${{ color: 'var(--bad)' }}>${fs}</div><//>
+      <${Tile} c="s3" title="Disponibilidad" glow="var(--lime)"><div class="big grad">${pct}%</div><div class="bar" style=${{ marginTop: 12 }}><i style=${{ width: pct + '%' }}></i></div><//>
+
+      <${Tile} c="s4" title="Paso 1 · Elegí los grupos" cn="static">
+        <div class="row" style=${{ gap: 6, marginBottom: 8 }}>
+          <button class="btn btn-sm" onClick=${() => setSelSet(new Set(grupos.map((b) => b.code)))}>Todos</button>
+          <button class="btn btn-sm" onClick=${() => setSelSet(new Set(grupos.filter((b) => b.estado === 'Fuera de servicio').map((b) => b.code)))}>Fuera de servicio</button>
+          <button class="btn btn-sm" onClick=${() => setSelSet(new Set(grupos.filter((b) => enProc.has(b.code)).map((b) => b.code)))}>Con trabajos en proceso</button>
+          <button class="btn btn-sm" onClick=${() => setSelSet(new Set())}>Ninguno</button>
+        </div>
+        <select class="inp" style=${{ marginBottom: 8 }} value="" onChange=${(e) => e.target.value && setSelSet(new Set(grupos.filter((b) => b.potencia === e.target.value).map((b) => b.code)))}>
+          <option value="">Solo una potencia…</option>${tipos.map((t) => html`<option key=${t}>${t}</option>`)}
+        </select>
+        <div class="checks">
+          ${grupos.map((b) => html`<label class="ck" key=${b.code}>
+            <input type="checkbox" checked=${selSet.has(b.code)} onChange=${() => toggle(b.code)}/>
+            <span class=${'dot ' + clsB(b.estado)}></span>
+            <span class="mono" style=${{ fontSize: 12.5, overflowWrap: 'anywhere' }}>${b.code}</span>
+          </label>`)}
+        </div>
+        <button class="btn btn-acc" style=${{ width: '100%', marginTop: 12 }} disabled=${!chosen.length || busy} onClick=${gen}>${I.pdf} ${busy ? 'Generando…' : `Generar PDF (${chosen.length} grupo${chosen.length === 1 ? '' : 's'})`}</button>
+      <//>
+
+      <${Tile} c="s8" title="Paso 2 · Vista previa — Situación por grupo" cn="static">
+        <div class="tbl-wrap"><table class="tbl">
+          <thead><tr><th>Código</th><th>Unidad</th><th>Potencia</th><th>Estado</th><th>Último mant.</th><th>Invertido</th></tr></thead>
+          <tbody>${chosen.map((b) => { const ms = msDe(b.code); const u = ms.find((m) => m.fecha); return html`<tr key=${b.code} class="click" onClick=${() => openB(b.code)}>
+            <td class="mono" style=${{ fontSize: 12 }}>${b.code}</td><td>${b.agricola}</td><td>${b.potencia}</td>
+            <td><${ChipB} e=${b.estado}/></td><td class="mono">${u ? U.fmtF(u.fecha) : '—'}</td><td class="mono">${sumUSD(ms) ? U.fmtUSD(sumUSD(ms)) : '—'}</td>
+          </tr>`; })}</tbody>
+        </table></div>
+        ${!chosen.length ? html`<div class="empty" style=${{ marginTop: 10 }}>Elegí al menos un grupo.</div>` : null}
+        <p class="note">El PDF incluye una portada con los indicadores, los trabajos en proceso y una ficha por grupo con su historial de mantenimientos. Tocá una fila para abrir la ficha.</p>
+      <//>
+    </div>`;
+  }
+
+  return { ResumenB, FichaB, MantsTab, InformeB, clsB };
+};
+
+</script>
+<script>
 /* ---- js/app.js ---- */
 /* Dashboard de Pozos de Agua Profunda — Grupo MP
    React 18 + htm (sin compilar) · Recharts · Leaflet · jsPDF */
@@ -3235,6 +4247,7 @@ window.crearModuloBombas = function (G) {
     home: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg>`,
     bolt: html`<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M13.5 2 4.5 13.5H11l-1 8.5 9.5-12H13z"/></svg>`,
     clip: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5 12.5 20a5.5 5.5 0 0 1-7.8-7.8l8.6-8.5a3.7 3.7 0 0 1 5.2 5.2l-8.5 8.5a1.8 1.8 0 0 1-2.6-2.6l7.8-7.8"/></svg>`,
+    gen: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="2.5"/><path d="M7 6V3.5M17 6V3.5M12.6 9.2 10 13h4l-2.6 3.8M6 22v-3M18 22v-3"/></svg>`,
     pin: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 22s7-6.2 7-12a7 7 0 0 0-14 0c0 5.8 7 12 7 12z"/><circle cx="12" cy="10" r="2.6"/></svg>`,
     pdf: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M12 12v6M9 15l3 3 3-3"/></svg>`
   };
@@ -3265,20 +4278,20 @@ window.crearModuloBombas = function (G) {
           const j = await r.json();
           if (!j.ok) throw new Error(j.error || 'Error del servidor');
           const data = U.normalizeData(j.data);
-          const res = { data, registro: j.registro || null, bombas: j.bombas || null, mants: j.mants || null, planilla: j.planilla || null };
+          const res = { data, registro: j.registro || null, bombas: j.bombas || null, mants: j.mants || null, grupos: j.grupos || null, mantsG: j.mantsG || null, planilla: j.planilla || null };
           lsSet(LS_CACHE, Object.assign({ at: Date.now() }, res));
           return res;
         },
         bulk: (ops, session) => post({ action: 'bulk', ops, session }),
-        upload: (session, key, name, b64) => post({ action: 'upload', session, key, name, b64 }),
-        unattach: (session, key, url) => post({ action: 'unattach', session, key, url }),
+        upload: (session, key, name, b64, mod) => post({ action: 'upload', session, key, name, b64, mod }),
+        unattach: (session, key, url, mod) => post({ action: 'unattach', session, key, url, mod }),
         login: (user, pass) => post({ action: 'login', user, pass }),
         check: (session) => post({ action: 'check', session })
       };
     }
     return {
       mode: 'local',
-      async load() { const d = lsGet(LS_DATA) || {}; return { data: U.normalizeData(d.pozos ? d.pozos : d), registro: null, bombas: d.bombas || null, mants: d.mants || null }; },
+      async load() { const d = lsGet(LS_DATA) || {}; return { data: U.normalizeData(d.pozos ? d.pozos : d), registro: null, bombas: d.bombas || null, mants: d.mants || null, grupos: d.grupos || null, mantsG: d.mantsG || null }; },
       async bulk() { return { ok: true }; },
       async login() { return { ok: true }; },
       async check() { return { ok: true }; }
@@ -4014,6 +5027,22 @@ window.crearModuloBombas = function (G) {
   ];
   const G = { html, useState, useEffect, useMemo, useRef, RC, I, Tile, Inset, Fld, ConfirmDel, tooltipStyle, U, api: { conectado: store.mode === 'sheets' } };
   const B = window.crearModuloBombas ? window.crearModuloBombas(G) : null;
+  const GTABS = [
+    { id: 'resumen', n: '01', t: 'Resumen' },
+    { id: 'ficha', n: '02', t: 'Ficha de grupos' },
+    { id: 'mant', n: '03', t: 'Mantenimientos' },
+    { id: 'informe', n: '04', t: 'Informe' }
+  ];
+  const GR = window.crearModuloGrupos ? window.crearModuloGrupos(G) : null;
+  const MODS = [{ id: 'pozos', t: 'Pozos', i: 'drop' }, { id: 'bombas', t: 'Bombas', i: 'pump' }, { id: 'grupos', t: 'Grupos', i: 'gen' }];
+  // Textos y campos del informe PDF de grupos electrógenos (usa el mismo generador que el de bombas).
+  const K_GRUPOS = {
+    Uno: 'Grupo', uno: 'grupo', Plural: 'Grupos', plural: 'grupos electrógenos', Op: 'Operativo', Ops: 'Operativos', incl: 'incluidos', esta: 'este grupo',
+    agr: 'unidad', titulo: 'Estado de grupos electrógenos', pie: 'Grupos electrógenos', hojaReg: 'Registro GRUPO', hojaMant: 'Mantenimiento GRUPO', archivo: 'Grupos', colExtra: 'Potencia',
+    extra: (b) => b.potencia, sub: (b) => `${b.agricola} · ${b.potencia}`,
+    parts: (b) => [['Unidad', b.pc.unidad || '-'], ['Sector', b.pc.sector || '-'], ['Tipo', b.movil === 'Sí' ? 'Móvil' : b.movil === 'No' ? 'Fijo' : '-'], ['Potencia', b.potencia], ['N° de grupo', b.pc.num || '-']],
+    eq: (b) => [['Motor', b.motor || 's/d'], ['Generador', b.generador || 's/d'], ['Integrador', b.integrador || '-'], ['Potencia', b.potencia || '-'], ['Móvil', b.movil]]
+  };
 
   // Aplica en pantalla, al instante, lo que se manda a las hojas de bombas.
   function applyB(st, ops) {
@@ -4021,13 +5050,13 @@ window.crearModuloBombas = function (G) {
     let mants = (st.mants || []).slice();
     ops.forEach((o) => {
       const d = Object.assign({}, o.data || {});
-      if (o.col === 'bombas') {
+      if (o.col === 'bombas' || o.col === 'grupos') {
         const k = U.normCode(o.id);
         const i = bombas.findIndex((r) => U.normCode(r.codigo) === k);
         if (i >= 0) bombas[i] = Object.assign({}, bombas[i], d);
         else bombas.push(Object.assign({ codigo: o.id }, d));
       }
-      if (o.col === 'mant') {
+      if (o.col === 'mant' || o.col === 'mantg') {
         const key = d.key;
         delete d.key;
         if (d.fecha) d.fecha = U.isoAR(d.fecha);
@@ -4039,8 +5068,8 @@ window.crearModuloBombas = function (G) {
     return { bombas, mants };
   }
 
-  function ModCard({ icon, title, desc, stats, pct, extra, onClick, glow }) {
-    return html`<button class="tile mod-card s6" onClick=${onClick}>
+  function ModCard({ icon, title, desc, stats, pct, extra, onClick, glow, c }) {
+    return html`<button class=${'tile mod-card ' + (c || 's6')} onClick=${onClick}>
       <div class="glow" style=${{ '--gc': glow }}></div>
       <div class="row between" style=${{ alignItems: 'flex-start' }}>
         <span class="mod-ico">${icon}</span>
@@ -4057,7 +5086,11 @@ window.crearModuloBombas = function (G) {
     </button>`;
   }
 
-  function Home({ wells, est, data, bombas, mants, goMod, openWell, openB }) {
+  function Home({ wells, est, data, bombas, mants, grupos, mantsG, goMod, openWell, openB }) {
+    const gOp = grupos.filter((g) => g.estado === 'Operativo').length;
+    const gFs = grupos.filter((g) => g.estado === 'Fuera de servicio').length;
+    const enProcG = mantsG.filter((m) => m.trabajo === 'En proceso').length;
+    const c = 's6';   // dos tarjetas por fila; las nuevas se van sumando abajo
     const wOp = wells.filter((w) => est(w).estado === 'Operativo').length;
     const wFs = wells.filter((w) => est(w).estado === 'Fuera de servicio').length;
     const bOp = bombas.filter((b) => b.estado === 'Operativa').length;
@@ -4065,15 +5098,20 @@ window.crearModuloBombas = function (G) {
     const enProc = mants.filter((m) => m.trabajo === 'En proceso').length;
     const pc = (a, n) => (n ? Math.round((a / n) * 100) : 0);
     return html`<div class="bento sec">
-      <${ModCard} icon=${I.drop} title=${html`Pozos de agua <span class="grad">profunda</span>`} glow="var(--aqua)"
+      <${ModCard} c=${c} icon=${I.drop} title=${html`Pozos de agua <span class="grad">profunda</span>`} glow="var(--aqua)"
         desc="Estado de cada pozo, niveles y caudal, función, trazabilidad, mapa satelital e informe."
         stats=${[['Pozos', wells.length], ['Operativos', wOp, 'var(--ok)'], ['Fuera de servicio', wFs, 'var(--bad)']]} pct=${pc(wOp, wells.length)}
         onClick=${() => goMod('pozos')}/>
-      <${ModCard} icon=${I.pump} title=${html`Bombas de <span class="grad">agua</span>`} glow="var(--lime)"
+      <${ModCard} c=${c} icon=${I.pump} title=${html`Bombas de <span class="grad">agua</span>`} glow="var(--lime)"
         desc="Bombas de pozo, antiheladas, riego, fertirriego y booster: estado, equipo, mantenimientos e inversión."
         stats=${[['Bombas', bombas.length], ['Operativas', bOp, 'var(--ok)'], ['Fuera de servicio', bFs, 'var(--bad)']]} pct=${pc(bOp, bombas.length)}
         extra=${enProc ? html`<span class="chip warn"><i></i>${enProc} trabajo${enProc === 1 ? '' : 's'} de mantenimiento en proceso</span>` : null}
         onClick=${() => goMod('bombas')}/>
+      <${ModCard} c=${c} icon=${I.gen} title=${html`Grupos <span class="grad">electrógenos</span>`} glow="var(--amber)"
+        desc="Grupos fijos y móviles: estado, motor y generador, mantenimientos e inversión."
+        stats=${[['Grupos', grupos.length], ['Operativos', gOp, 'var(--ok)'], ['Fuera de servicio', gFs, 'var(--bad)']]} pct=${pc(gOp, grupos.length)}
+        extra=${enProcG ? html`<span class="chip warn"><i></i>${enProcG} trabajo${enProcG === 1 ? '' : 's'} de mantenimiento en proceso</span>` : null}
+        onClick=${() => goMod('grupos')}/>
     </div>`;
   }
 
@@ -4084,6 +5122,7 @@ window.crearModuloBombas = function (G) {
     const [m, t] = location.hash.slice(1).split('/');
     if (m === 'pozos') return { mod: 'pozos', tab: TABS.some((x) => x.id === t) ? t : 'resumen', btab: 'resumen' };
     if (m === 'bombas' && B) return { mod: 'bombas', tab: 'resumen', btab: BTABS.some((x) => x.id === t) ? t : 'resumen' };
+    if (m === 'grupos' && GR) return { mod: 'grupos', tab: 'resumen', btab: 'resumen', gtab: GTABS.some((x) => x.id === t) ? t : 'resumen' };
     if (TABS.some((x) => x.id === m)) return { mod: 'pozos', tab: m, btab: 'resumen' };   // enlaces viejos (#ficha)
     return { mod: 'inicio', tab: 'resumen', btab: 'resumen' };
   }
@@ -4095,6 +5134,11 @@ window.crearModuloBombas = function (G) {
     const [mod, setMod] = useState(h0.mod);
     const [tab, setTab] = useState(h0.tab);
     const [btab, setBtab] = useState(h0.btab);
+    const [gtab, setGtab] = useState(h0.gtab || 'resumen');
+    const [rawG, setRawG] = useState(() => (window.GRUPOS_BASE ? { bombas: window.GRUPOS_BASE.grupos, mants: window.GRUPOS_BASE.mants } : { bombas: [], mants: [] }));
+    const [gSrc, setGSrc] = useState('copia');
+    const rawGRef = useRef(rawG);
+    rawGRef.current = rawG;
     const [data, setData] = useState(U.normalizeData(null));
     const [registro, setRegistro] = useState(null);
     const [rawB, setRawB] = useState(() => (window.BOMBAS_BASE ? { bombas: window.BOMBAS_BASE.bombas, mants: window.BOMBAS_BASE.mants } : { bombas: [], mants: [] }));
@@ -4122,6 +5166,9 @@ window.crearModuloBombas = function (G) {
     const mants = useMemo(() => U.buildMants(rawB.mants, bombas), [rawB.mants, bombas]);
     const [sel, setSel] = useState(() => (wells[0] || {}).code);
     const [selB, setSelB] = useState(() => (bombas[0] || {}).code);
+    const grupos = useMemo(() => U.buildGrupos(rawG.bombas), [rawG.bombas]);
+    const mantsG = useMemo(() => U.buildMants(rawG.mants, grupos, true), [rawG.mants, grupos]);
+    const [selG, setSelG] = useState(() => (grupos[0] || {}).code);
 
     const est = useCallback((w) => {
       const r = data.relevamiento[w.code];
@@ -4136,6 +5183,12 @@ window.crearModuloBombas = function (G) {
         setData(r.data);
         if (r.registro) setRegistro(r.registro);
         if (r.planilla) setPlanilla(r.planilla);
+        if (r.grupos || r.mantsG) {
+          setRawG((prev) => ({ bombas: r.grupos || prev.bombas, mants: r.mantsG || prev.mants }));
+          setGSrc(store.mode === 'sheets' && r.grupos && r.mantsG ? 'vivo' : store.mode === 'local' ? 'local' : 'copia');
+        } else if (store.mode === 'sheets' && r.bombas && !silencioso) {
+          toast('No pude leer las hojas de grupos electrógenos: actualizá el Apps Script. Se muestra la copia del 16/11.', 'bad');
+        }
         if (r.bombas || r.mants) {
           setRawB((prev) => ({ bombas: r.bombas || prev.bombas, mants: r.mants || prev.mants }));
           setBSrc(store.mode === 'sheets' && r.bombas && r.mants ? 'vivo' : store.mode === 'local' ? 'local' : 'copia');
@@ -4150,6 +5203,7 @@ window.crearModuloBombas = function (G) {
           setData(U.normalizeData(c.data));
           if (c.registro) setRegistro(c.registro);
           if (c.bombas) setRawB({ bombas: c.bombas, mants: c.mants || [] });
+          if (c.grupos) setRawG({ bombas: c.grupos, mants: c.mantsG || [] });
         }
         setSrcState('error');
         toast('No se pudo leer Google Sheets' + (c ? '; se muestra la última copia guardada.' : '.'), 'bad');
@@ -4157,13 +5211,13 @@ window.crearModuloBombas = function (G) {
       setLoaded(true);
     }, []);
     useEffect(() => { load(); }, []);
-    useEffect(() => { if (loaded && store.mode === 'local') lsSet(LS_DATA, { pozos: data, bombas: rawB.bombas, mants: rawB.mants }); }, [data, rawB, loaded]);
+    useEffect(() => { if (loaded && store.mode === 'local') lsSet(LS_DATA, { pozos: data, bombas: rawB.bombas, mants: rawB.mants, grupos: rawG.bombas, mantsG: rawG.mants }); }, [data, rawB, rawG, loaded]);
     useEffect(() => { U.loadLogo().then((l) => l && setLogoUrl(l.url)); }, []);
     useEffect(() => {
-      const h = mod === 'inicio' ? '#inicio' : '#' + mod + '/' + (mod === 'pozos' ? tab : btab);
+      const h = mod === 'inicio' ? '#inicio' : '#' + mod + '/' + (mod === 'pozos' ? tab : mod === 'grupos' ? gtab : btab);
       if (location.hash !== h) history.replaceState(null, '', h);
       window.scrollTo({ top: 0, behavior: 'smooth' });
-    }, [mod, tab, btab]);
+    }, [mod, tab, btab, gtab]);
 
     const authFail = (err) => {
       if (err.auth) { borrarSesion(); setAdmin(null); toast('Tu sesión de administrador venció. Ingresá de nuevo para guardar.', 'bad'); }
@@ -4186,14 +5240,23 @@ window.crearModuloBombas = function (G) {
         return j || true;
       } catch (err) { console.error(err); setRawB(prev); authFail(err); return false; }
     }, []);
+    const mutateG = useCallback(async (ops) => {
+      const prev = rawGRef.current;
+      setRawG(applyB(prev, ops));
+      try {
+        const j = await store.bulk(ops, adminRef.current && adminRef.current.session);
+        if (store.mode === 'sheets') load(true);
+        return j || true;
+      } catch (err) { console.error(err); setRawG(prev); authFail(err); return false; }
+    }, []);
     // Adjuntos de mantenimientos: suben a Drive a través del Apps Script.
-    G.api.subir = async (key, file) => {
+    G.api.subir = async (key, file, modulo) => {
       const b64 = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result).split(',')[1] || ''); fr.onerror = () => rej(new Error('No se pudo leer el archivo')); fr.readAsDataURL(file); });
-      try { return await store.upload(adminRef.current && adminRef.current.session, key, file.name, b64); }
+      try { return await store.upload(adminRef.current && adminRef.current.session, key, file.name, b64, modulo || 'bombas'); }
       catch (err) { if (err.auth) authFail(err); throw err; }
     };
-    G.api.quitar = async (key, url) => {
-      try { await store.unattach(adminRef.current && adminRef.current.session, key, url); await load(true); return true; }
+    G.api.quitar = async (key, url, modulo) => {
+      try { await store.unattach(adminRef.current && adminRef.current.session, key, url, modulo || 'bombas'); await load(true); return true; }
       catch (err) { console.error(err); authFail(err); return false; }
     };
     G.api.recargar = () => load(true);
@@ -4209,9 +5272,9 @@ window.crearModuloBombas = function (G) {
     const onLogin = (s) => { lsSet(LS_ADMIN, s); setAdmin(s); setShowLogin(false); toast('Hola, ' + s.user + '. Ya podés cargar y modificar datos.'); };
     const logout = () => { borrarSesion(); setAdmin(null); toast('Sesión cerrada. Quedaste en modo lectura.'); };
 
-    const tabs = mod === 'bombas' ? BTABS : TABS;
-    const curTab = mod === 'bombas' ? btab : tab;
-    const setCur = mod === 'bombas' ? setBtab : setTab;
+    const tabs = mod === 'bombas' ? BTABS : mod === 'grupos' ? GTABS : TABS;
+    const curTab = mod === 'bombas' ? btab : mod === 'grupos' ? gtab : tab;
+    const setCur = mod === 'bombas' ? setBtab : mod === 'grupos' ? setGtab : setTab;
     const step = (d) => { const i = tabs.findIndex((t) => t.id === curTab); setCur(tabs[(i + d + tabs.length) % tabs.length].id); };
     useEffect(() => {
       const f = (ev) => {
@@ -4228,6 +5291,11 @@ window.crearModuloBombas = function (G) {
 
     const openWell = (code) => { setSel(code); setTab('ficha'); setMod('pozos'); };
     const openB = (code) => { setSelB(code); setBtab('ficha'); setMod('bombas'); };
+    const openG = (code) => { setSelG(code); setGtab('ficha'); setMod('grupos'); };
+    const onPdfG = async (codes) => {
+      try { await window.BombasPDF.generar(codes, { bombas: grupos, mants: mantsG, K: K_GRUPOS }); }
+      catch (err) { console.error(err); toast('No se pudo generar el PDF: ' + err.message, 'bad'); }
+    };
     // Bomba de pozo <-> pozo: mismo código, o misma finca + "BP".
     const bombaDe = (code) => bombas.find((b) => b.tipo === 'BP' && (b.code === code || U.claveBomba(b.code) === U.claveBomba(code))) || null;
     const pozoDe = (code) => { const b = bombas.find((x) => x.code === code); if (!b || b.tipo !== 'BP') return null; return wells.find((w) => w.code === code || U.claveBomba(w.code) === U.claveBomba(code)) || null; };
@@ -4267,6 +5335,7 @@ window.crearModuloBombas = function (G) {
     if (!wells.length) return html`<div class="boot">No hay pozos cargados.</div>`;
     const selW = wells.some((w) => w.code === sel) ? sel : wells[0].code;
     const selBB = bombas.some((b) => b.code === selB) ? selB : (bombas[0] || {}).code;
+    const selGG = grupos.some((g) => g.code === selG) ? selG : (grupos[0] || {}).code;
 
     const sheetUrl = (planilla && planilla.url) || CFG.SHEET_URL;
     const sheetName = (planilla && planilla.nombre) || 'Ingeniería GMP';
@@ -4276,8 +5345,10 @@ window.crearModuloBombas = function (G) {
 
     const titulo = mod === 'pozos' ? html`Pozos de agua <span class="grad">profunda</span>`
       : mod === 'bombas' ? html`Bombas de <span class="grad">agua</span>`
+      : mod === 'grupos' ? html`Grupos <span class="grad">electrógenos</span>`
       : html`Área de <span class="grad">Ingeniería Industrial</span>`;
     const sub = mod === 'pozos' ? html`${wells.length} pozos de <a href=${sheetUrl} target="_blank" rel="noopener">${sheetName} › POZOS DE AGUA</a>${vivo}`
+      : mod === 'grupos' ? html`${grupos.length} grupos de <a href=${sheetUrl} target="_blank" rel="noopener">${sheetName} › Registro GRUPO</a>${gSrc === 'vivo' ? ' · en vivo' : gSrc === 'local' ? '' : ' · copia del 16/11/2026'}`
       : mod === 'bombas' ? html`${bombas.length} bombas de <a href=${sheetUrl} target="_blank" rel="noopener">${sheetName} › Registro BOMBA</a>${bSrc === 'vivo' ? ' · en vivo' : bSrc === 'local' ? '' : ' · copia del 11/11/2026'}`
       : html`Tableros y seguimiento de equipos del Grupo MP · <a href=${sheetUrl} target="_blank" rel="noopener">${sheetName}</a>${vivo}`;
 
@@ -4307,17 +5378,22 @@ window.crearModuloBombas = function (G) {
 
       ${mod !== 'inicio' ? html`<nav class="tabs" role="tablist">
         <button class="tab tab-home" onClick=${() => setMod('inicio')} title="Volver al menú principal">${I.home}<span>Menú</span></button>
-        <button class="tab tab-switch" onClick=${() => setMod(mod === 'pozos' ? 'bombas' : 'pozos')} title=${mod === 'pozos' ? 'Ir a Bombas' : 'Ir a Pozos'}>${mod === 'pozos' ? I.pump : I.drop}<span>${mod === 'pozos' ? 'Bombas' : 'Pozos'}</span></button>
+        ${MODS.filter((x) => x.id !== mod).map((x) => html`<button key=${x.id} class="tab tab-switch" onClick=${() => setMod(x.id)} title=${'Ir a ' + x.t}>${I[x.i]}<span>${x.t}</span></button>`)}
         <span class="tab-sep"></span>
         ${tabs.map((t) => html`<button key=${t.id} role="tab" aria-selected=${t.id === curTab} class=${'tab' + (t.id === curTab ? ' on' : '')} onClick=${() => setCur(t.id)}><span class="n">${t.n}</span>${t.t}</button>`)}
       </nav>` : null}
 
       <main key=${mod + '/' + curTab}>
-        ${mod === 'inicio' ? html`<${Home} wells=${wells} est=${est} data=${data} bombas=${bombas} mants=${mants} goMod=${setMod} openWell=${openWell} openB=${openB}/>` : null}
+        ${mod === 'inicio' ? html`<${Home} wells=${wells} est=${est} data=${data} bombas=${bombas} mants=${mants} grupos=${grupos} mantsG=${mantsG} goMod=${setMod} openWell=${openWell} openB=${openB}/>` : null}
         ${mod === 'pozos' && tab === 'resumen' ? html`<${Resumen} wells=${wells} data=${data} est=${est} openWell=${openWell} pal=${pal}/>` : null}
         ${mod === 'pozos' && tab === 'ficha' ? html`<${Ficha} canEdit=${canEdit} wells=${wells} sel=${selW} setSel=${setSel} data=${data} est=${est} mutate=${mutate} pal=${pal} onPdf=${onPdf} toast=${toast} bombaDe=${bombaDe} goBomba=${openB}/>` : null}
         ${mod === 'pozos' && tab === 'mapa' ? html`<${Mapa} wells=${wells} sel=${selW} setSel=${setSel} est=${est} goFicha=${openWell} pal=${pal}/>` : null}
         ${mod === 'pozos' && tab === 'informe' ? html`<${Informe} wells=${wells} data=${data} est=${est} openWell=${openWell} onPdf=${onPdf} logoUrl=${logoUrl}/>` : null}
+        ${mod === 'grupos' && !grupos.length ? html`<div class="empty">No hay grupos cargados en la hoja Registro GRUPO.</div>` : null}
+        ${mod === 'grupos' && grupos.length && gtab === 'resumen' ? html`<${GR.ResumenB} grupos=${grupos} mants=${mantsG} openB=${openG} pal=${pal} goTab=${setGtab}/>` : null}
+        ${mod === 'grupos' && grupos.length && gtab === 'ficha' ? html`<${GR.FichaB} grupos=${grupos} mants=${mantsG} sel=${selGG} setSel=${setSelG} canEdit=${canEdit} mutateB=${mutateG} toast=${toast} onPdf=${onPdfG}/>` : null}
+        ${mod === 'grupos' && grupos.length && gtab === 'mant' ? html`<${GR.MantsTab} grupos=${grupos} mants=${mantsG} canEdit=${canEdit} mutateB=${mutateG} toast=${toast} openB=${openG} pal=${pal}/>` : null}
+        ${mod === 'grupos' && grupos.length && gtab === 'informe' ? html`<${GR.InformeB} grupos=${grupos} mants=${mantsG} openB=${openG} onPdf=${onPdfG} logoUrl=${logoUrl}/>` : null}
         ${mod === 'bombas' && !bombas.length ? html`<div class="empty">No hay bombas cargadas en la hoja Registro BOMBA.</div>` : null}
         ${mod === 'bombas' && bombas.length && btab === 'resumen' ? html`<${B.ResumenB} bombas=${bombas} mants=${mants} openB=${openB} pal=${pal} goTab=${setBtab}/>` : null}
         ${mod === 'bombas' && bombas.length && btab === 'ficha' ? html`<${B.FichaB} bombas=${bombas} mants=${mants} sel=${selBB} setSel=${setSelB} canEdit=${canEdit} mutateB=${mutateB} toast=${toast} onPdf=${onPdfB} pozoDe=${pozoDe} goPozo=${openWell}/>` : null}
@@ -4327,7 +5403,8 @@ window.crearModuloBombas = function (G) {
 
       <footer class="ftr">
         ${mod !== 'inicio' ? html`<span><kbd>←</kbd> <kbd>→</kbd> para avanzar entre secciones</span>` : html`<span>Elegí un módulo para empezar</span>`}
-        <span>${mod === 'bombas' ? 'FINCA-SECTOR-TIPO-INSTALACIÓN-HP · BP pozo · BH antiheladas · BR riego · BF fertirriego · BB booster · S sumergida · C centrífuga'
+        <span>${mod === 'grupos' ? 'UNIDAD-SECTOR-(F fijo · M móvil)-kVA-MOTOR-GENERADOR-N°'
+          : mod === 'bombas' ? 'FINCA-SECTOR-TIPO-INSTALACIÓN-HP · BP pozo · BH antiheladas · BR riego · BF fertirriego · BB booster · S sumergida · C centrífuga'
           : mod === 'pozos' ? 'FINCA-SECTOR-BP-INSTALACIÓN-HP · BP = bomba de pozo · S = sumergida' : 'Grupo MP · Ingeniería Industrial'}</span>
         <span class="tools">
           <span class="badge-src"><span class=${'dot ' + srcDot}></span>${srcLabel}</span>
