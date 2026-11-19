@@ -518,6 +518,8 @@ table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:13px;mi
 .req-card.anul{border-left-color:var(--rose)}
 .leyenda{display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:12px;padding-top:12px;border-top:1px dashed var(--stroke2);font-size:12.5px;color:var(--muted)}
 .leyenda span{display:inline-flex;align-items:center;gap:6px}
+.aviso-err{margin:0 0 16px;padding:12px 16px;border-radius:16px;border:1px solid color-mix(in srgb,var(--bad) 45%,transparent);background:color-mix(in srgb,var(--bad) 10%,transparent);font-size:13.5px;line-height:1.5}
+.aviso-err .btn{margin-left:8px}
 
 </style>
 </head>
@@ -7707,6 +7709,8 @@ window.crearModuloCompras = function (G) {
           if (CFG.TOKEN) u.searchParams.set('token', CFG.TOKEN);
           const j = await (await fetch(u.toString())).json();
           if (!j.ok) throw new Error(j.error || 'No se pudo leer la hoja de compras');
+          // Implementación vieja del Apps Script: no conoce "compras" y devuelve los datos de siempre.
+          if (!Array.isArray(j.rows)) throw new Error('el Apps Script publicado todavía no lee compras. Pegá el Code.gs nuevo, ejecutá setup y creá una Nueva versión de la implementación');
           return j;
         },
         async plano(id) {
@@ -8636,6 +8640,18 @@ window.crearModuloCompras = function (G) {
     return { mod: 'inicio', tab: 'resumen', btab: 'resumen' };
   }
 
+  class Guardia extends React.Component {
+    constructor(p) { super(p); this.state = { err: null }; }
+    static getDerivedStateFromError(err) { return { err }; }
+    componentDidCatch(err) { console.error(err); }
+    render() {
+      if (!this.state.err) return this.props.children;
+      return html`<div class="aviso-err" style=${{ marginTop: 20 }}><b>Algo falló al mostrar esta sección.</b> ${String(this.state.err.message || this.state.err)}
+        <div class="row" style=${{ marginTop: 10 }}><button class="btn btn-sm" onClick=${() => location.reload()}>Recargar la página</button>
+        <button class="btn btn-sm" onClick=${() => { this.setState({ err: null }); this.props.volver(); }}>Volver al menú</button></div></div>`;
+    }
+  }
+
   function App() {
     const [theme, setTheme] = useTheme();
     const pal = PAL[theme];
@@ -8646,7 +8662,7 @@ window.crearModuloCompras = function (G) {
     const [gtab, setGtab] = useState(h0.gtab || 'resumen');
     const [ftab, setFtab] = useState(h0.ftab || 'resumen');
     const [ctab, setCtab] = useState(h0.ctab || 'resumen');
-    const [compras, setCompras] = useState(() => { const c = lsGet('pozos-gmp-compras'); return c && c.rows ? Object.assign({ src: 'cache' }, c) : { rows: window.COMPRAS_BASE ? window.COMPRAS_BASE.rows : [], al: window.COMPRAS_BASE ? window.COMPRAS_BASE.al : '', src: 'copia' }; });
+    const [compras, setCompras] = useState(() => { const c = lsGet('pozos-gmp-compras'); return c && Array.isArray(c.rows) ? Object.assign({ src: 'cache' }, c) : { rows: window.COMPRAS_BASE ? window.COMPRAS_BASE.rows : [], al: window.COMPRAS_BASE ? window.COMPRAS_BASE.al : '', src: 'copia' }; });
     const [filtroC, setFiltroC] = useState(null);
     const comprasPedidas = useRef(false);
     const FB = window.FRIO_BASE;
@@ -8801,12 +8817,11 @@ window.crearModuloCompras = function (G) {
         const j = await store.compras();
         const c = { rows: j.rows, nombre: j.nombre, hoja: j.hoja, url: j.url, al: new Date().toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' }) };
         lsSet('pozos-gmp-compras', c);
-        setCompras(Object.assign({ src: 'vivo' }, c));
+        setCompras(Object.assign({ src: 'vivo', error: '' }, c));
         if (aviso) toast('Compras actualizadas desde la planilla.');
       } catch (err) {
         console.error(err);
-        setCompras((c) => Object.assign({}, c, { cargando: false }));
-        toast('No pude leer la hoja de compras: ' + err.message + '. Se muestra la última copia.', 'bad');
+        setCompras((c) => Object.assign({}, c, { cargando: false, error: err.message || String(err) }));
       }
     }, []);
     useEffect(() => { if (ctab !== 'pendientes') setFiltroC(null); }, [ctab]);
@@ -8989,12 +9004,12 @@ window.crearModuloCompras = function (G) {
       : html`Área de <span class="grad">Ingeniería Industrial</span>`;
     const sub = mod === 'pozos' ? html`${wells.length} pozos de <a href=${sheetUrl} target="_blank" rel="noopener">${sheetName} › POZOS DE AGUA</a>${vivo}`
       : mod === 'grupos' ? html`${grupos.length} grupos de <a href=${sheetUrl} target="_blank" rel="noopener">${sheetName} › Registro GRUPO</a>${gSrc === 'vivo' ? ' · en vivo' : gSrc === 'local' ? '' : ' · copia del 16/11/2026'}`
-      : mod === 'compras' ? html`${compras.rows.length} requerimientos de <a href=${compras.url || COMPRAS_URL} target="_blank" rel="noopener">${compras.nombre || 'Ingeniería GMP'} › ${compras.hoja || 'Requerimientos de compras'}</a>${compras.cargando ? ' · actualizando…' : compras.src === 'vivo' ? ' · en vivo' : compras.al ? ' · copia del ' + compras.al : ''} · solo lectura`
+      : mod === 'compras' ? html`${(compras.rows || []).length} requerimientos de <a href=${compras.url || COMPRAS_URL} target="_blank" rel="noopener">${compras.nombre || 'Ingeniería GMP'} › ${compras.hoja || 'Requerimientos de compras'}</a>${compras.cargando ? ' · actualizando…' : compras.src === 'vivo' ? ' · en vivo' : compras.al ? ' · copia del ' + compras.al : ''} · solo lectura`
       : mod === 'frio' ? html`${frio.length} equipos de <a href=${sheetUrl} target="_blank" rel="noopener">${sheetName} › Registro AA</a>${fSrc === 'vivo' ? ' · en vivo' : fSrc === 'local' ? '' : ' · copia del 17/11/2026'}`
       : mod === 'bombas' ? html`${bombas.length} bombas de <a href=${sheetUrl} target="_blank" rel="noopener">${sheetName} › Registro BOMBA</a>${bSrc === 'vivo' ? ' · en vivo' : bSrc === 'local' ? '' : ' · copia del 11/11/2026'}`
       : html`Tableros y seguimiento de equipos del Grupo MP · <a href=${sheetUrl} target="_blank" rel="noopener">${sheetName}</a>${vivo}`;
 
-    const pendC = C ? C.pendientes(compras.rows) : 0;
+    const pendC = C ? C.pendientes(compras.rows || []) : 0;
     return html`<div class="wrap">
       ${C ? html`<${Rail} mod=${mod} go=${setMod} badges=${{ compras: pendC }}/>` : null}
       <header class="hdr">
@@ -9028,7 +9043,10 @@ window.crearModuloCompras = function (G) {
         ${tabs.map((t) => html`<button key=${t.id} role="tab" aria-selected=${t.id === curTab} class=${'tab' + (t.id === curTab ? ' on' : '')} onClick=${() => setCur(t.id)}><span class="n">${t.n}</span>${t.t}</button>`)}
       </nav>` : null}
 
+      <${Guardia} key=${'g' + mod + '/' + curTab} volver=${() => { setMod('inicio'); }}>
       <main key=${mod + '/' + curTab}>
+        ${mod === 'compras' && compras.error ? html`<div class="aviso-err"><b>No se pudo leer la planilla de compras:</b> ${compras.error}. Se muestra la última copia guardada (${compras.al || 'sin fecha'}).
+          <button class="btn btn-sm" onClick=${() => cargarCompras(true)}>Reintentar</button></div>` : null}
         ${mod === 'inicio' ? html`<${Home} wells=${wells} est=${est} data=${data} bombas=${bombas} mants=${mants} grupos=${grupos} mantsG=${mantsG} frio=${frio} mantsF=${mantsF} goMod=${setMod} openWell=${openWell} openB=${openB}/>` : null}
         ${mod === 'pozos' && tab === 'resumen' ? html`<${Resumen} wells=${wells} data=${data} est=${est} openWell=${openWell} pal=${pal}/>` : null}
         ${mod === 'pozos' && tab === 'ficha' ? html`<${Ficha} canEdit=${canEdit} wells=${wells} sel=${selW} setSel=${setSel} data=${data} est=${est} mutate=${mutate} pal=${pal} onPdf=${onPdf} toast=${toast} bombaDe=${bombaDe} goBomba=${openB}/>` : null}
@@ -9039,9 +9057,9 @@ window.crearModuloCompras = function (G) {
         ${mod === 'grupos' && grupos.length && gtab === 'ficha' ? html`<${GR.FichaB} grupos=${grupos} mants=${mantsG} sel=${selGG} setSel=${setSelG} canEdit=${canEdit} mutateB=${mutateG} toast=${toast} onPdf=${onPdfG}/>` : null}
         ${mod === 'grupos' && grupos.length && gtab === 'mant' ? html`<${GR.MantsTab} grupos=${grupos} mants=${mantsG} canEdit=${canEdit} mutateB=${mutateG} toast=${toast} openB=${openG} pal=${pal}/>` : null}
         ${mod === 'grupos' && grupos.length && gtab === 'informe' ? html`<${GR.InformeB} grupos=${grupos} mants=${mantsG} openB=${openG} onPdf=${onPdfG} logoUrl=${logoUrl}/>` : null}
-        ${mod === 'compras' && ctab === 'resumen' ? html`<${C.ResumenC} rows=${compras.rows} pal=${pal} goTab=${setCtab} verPend=${(f) => { setFiltroC(f); setCtab('pendientes'); }}/>` : null}
-        ${mod === 'compras' && ctab === 'pendientes' ? html`<${C.PendientesC} rows=${compras.rows} filtro=${filtroC}/>` : null}
-        ${mod === 'compras' && ctab === 'todos' ? html`<${C.ListaC} rows=${compras.rows}/>` : null}
+        ${mod === 'compras' && ctab === 'resumen' ? html`<${C.ResumenC} rows=${compras.rows || []} pal=${pal} goTab=${setCtab} verPend=${(f) => { setFiltroC(f); setCtab('pendientes'); }}/>` : null}
+        ${mod === 'compras' && ctab === 'pendientes' ? html`<${C.PendientesC} rows=${compras.rows || []} filtro=${filtroC}/>` : null}
+        ${mod === 'compras' && ctab === 'todos' ? html`<${C.ListaC} rows=${compras.rows || []}/>` : null}
         ${mod === 'frio' && !frio.length ? html`<div class="empty">No hay equipos cargados en la hoja Registro AA.</div>` : null}
         ${mod === 'frio' && frio.length && ftab === 'resumen' ? html`<${F.ResumenF} equipos=${frio} mants=${mantsF} openF=${openF} pal=${pal} goTab=${setFtab} verPlano=${verPlano} planos=${planosF}/>` : null}
         ${mod === 'frio' && frio.length && ftab === 'ficha' ? html`<${F.FichaF} equipos=${frio} mants=${mantsF} sel=${selFF} setSel=${setSelF} canEdit=${canEdit} mutateF=${mutateF} toast=${toast} onPdf=${onPdfF}
@@ -9056,6 +9074,7 @@ window.crearModuloCompras = function (G) {
         ${mod === 'bombas' && bombas.length && btab === 'mant' ? html`<${B.MantsTab} bombas=${bombas} mants=${mants} canEdit=${canEdit} mutateB=${mutateB} toast=${toast} openB=${openB} pal=${pal}/>` : null}
         ${mod === 'bombas' && bombas.length && btab === 'informe' ? html`<${B.InformeB} bombas=${bombas} mants=${mants} openB=${openB} onPdf=${onPdfB} logoUrl=${logoUrl}/>` : null}
       </main>
+      <//>
 
       <footer class="ftr">
         ${mod !== 'inicio' ? html`<span><kbd>←</kbd> <kbd>→</kbd> para avanzar entre secciones</span>` : html`<span>Elegí un módulo para empezar</span>`}
