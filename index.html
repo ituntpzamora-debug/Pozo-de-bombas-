@@ -9093,8 +9093,6 @@ window.crearModuloCompras = function (G) {
           </div>
         </div>
         <div class="hdr-r">
-          ${mod === 'inicio' && POWERBI_URL ? html`<a class="btn-energy" href=${POWERBI_URL} target="_blank" rel="noopener" title="Abrir el tablero energético del grupo en Power BI">
-            <span class="bolt">${I.bolt}</span><span class="tx"><b>Tablero energético</b><small>Power BI · todo el grupo ↗</small></span></a>` : null}
           <div class="seg" role="group" aria-label="Tema">
             <button class=${theme === 'light' ? 'on' : ''} onClick=${() => setTheme('light')}>${I.sun} Claro</button>
             <button class=${theme === 'dark' ? 'on' : ''} onClick=${() => setTheme('dark')}>${I.moon} Oscuro</button>
