@@ -460,9 +460,11 @@ table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:13px;mi
 /* El contenido deja lugar a la barra en pantallas medianas (en las grandes ya sobra margen). */
 @media (min-width:900px) and (max-width:1399px){.wrap{padding-left:max(84px,3vw)}}
 @media (max-width:899px){
-  .rail{top:auto;bottom:78px;transform:none;width:304px;border-radius:0 22px 22px 0;opacity:0;pointer-events:none;translate:-24px 0;transition:opacity .2s,translate .2s}
-  .rail.open{opacity:1;pointer-events:auto;translate:0 0}
-  .rail .rail-tx,.rail .rail-badge,.rail .rail-h .x{opacity:1}.rail .rail-h .c,.rail .rail-dot{opacity:0}
+  /* Celular: el botón flotante saca la barra angosta y en el mismo movimiento se amplía (igual que con el mouse). */
+  .rail{top:auto;bottom:78px;transform:none;width:66px;opacity:0;pointer-events:none;translate:-70px 0;
+    transition:translate .18s ease-out,opacity .12s,width .28s cubic-bezier(.2,.8,.2,1) .12s,box-shadow .26s}
+  .rail.open{opacity:1;pointer-events:auto;translate:0 0;width:304px}
+  .rail .rail-tx,.rail .rail-badge,.rail .rail-h .x{transition:opacity .15s .22s}
   .rail-fab{display:grid;place-items:center;position:fixed;left:14px;bottom:18px;z-index:1201;width:50px;height:50px;border-radius:16px;border:1px solid var(--stroke2);
     background:linear-gradient(165deg,var(--glass2),var(--glass));backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);box-shadow:0 14px 34px -14px rgba(0,0,0,.6);color:var(--fg);cursor:pointer}
   .rail-fab svg{width:22px;height:22px}
@@ -8727,6 +8729,11 @@ window.crearModuloProduccion = function (G) {
   ].filter((x) => !('href' in x) || x.href);
   function Rail({ mod, go, badges }) {
     const [open, setOpen] = useState(false);
+    // En pantallas táctiles no hay "pasar el mouse": el primer toque abre la barra (con la misma animación)
+    // y el segundo, sobre una opción, entra.
+    const tipo = useRef('mouse');
+    const tactil = () => tipo.current !== 'mouse';
+    const primerToque = (e) => { if (tactil() && !open) { e.preventDefault(); e.stopPropagation(); setOpen(true); return true; } return false; };
     useEffect(() => {
       if (!open) return;
       const f = (e) => { if (!e.target.closest || !e.target.closest('.rail-zone')) setOpen(false); };
@@ -8736,7 +8743,8 @@ window.crearModuloProduccion = function (G) {
     const total = Object.values(badges).reduce((a, b) => a + (b || 0), 0);
     return html`<div class="rail-zone">
       <button class="rail-fab" aria-label="Accesos del área" onClick=${() => setOpen(!open)}>${I.grid}${total ? html`<b class="rail-dot">${total}</b>` : null}</button>
-      <nav class=${'rail' + (open ? ' open' : '')} aria-label="Accesos del área">
+      <nav class=${'rail' + (open ? ' open' : '')} aria-label="Accesos del área" onPointerDown=${(e) => { tipo.current = e.pointerType || 'mouse'; }}
+        onClick=${() => { if (tactil() && !open) setOpen(true); }}>
         <div class="rail-h"><span class="c">Área</span><span class="x">Área de Ingeniería</span></div>
         ${RAIL.map((x) => {
           const inner = html`<span class="rail-ic">${I[x.i]}${badges[x.id] ? html`<b class="rail-dot">${badges[x.id]}</b>` : null}</span>
@@ -8744,8 +8752,8 @@ window.crearModuloProduccion = function (G) {
             ${badges[x.id] ? html`<span class="rail-badge" title="Pedidos pendientes">${badges[x.id]} pend.</span>` : null}`;
           const cls = 'rail-item' + (x.cls ? ' ' + x.cls : '') + (mod === x.id ? ' on' : '');
           return x.href
-            ? html`<a key=${x.id} class=${cls} href=${x.href} target="_blank" rel="noopener" title=${x.t + ' (se abre en otra pestaña)'} onClick=${(e) => { setOpen(false); e.currentTarget.blur(); }}>${inner}</a>`
-            : html`<button key=${x.id} class=${cls} title=${x.t} onClick=${(e) => { setOpen(false); e.currentTarget.blur(); go(x.id); }}>${inner}</button>`;
+            ? html`<a key=${x.id} class=${cls} href=${x.href} target="_blank" rel="noopener" title=${x.t + ' (se abre en otra pestaña)'} onClick=${(e) => { if (primerToque(e)) return; setOpen(false); e.currentTarget.blur(); }}>${inner}</a>`
+            : html`<button key=${x.id} class=${cls} title=${x.t} onClick=${(e) => { if (primerToque(e)) return; setOpen(false); e.currentTarget.blur(); go(x.id); }}>${inner}</button>`;
         })}
       </nav>
     </div>`;
