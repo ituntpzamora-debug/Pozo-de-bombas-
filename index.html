@@ -524,6 +524,8 @@ a.rail-item{text-decoration:none}
 .rail-item.energia .rail-ic{border:0;background:linear-gradient(135deg,#ffd75e,#f59e0b);color:#3a2500;box-shadow:0 0 0 3px color-mix(in srgb,#f59e0b 22%,transparent)}
 .rail-item.energia:hover .rail-ic{border:0;box-shadow:0 0 0 4px color-mix(in srgb,#f59e0b 35%,transparent),0 0 18px -2px #f59e0b}
 .rail-item.energia:hover{border-color:color-mix(in srgb,var(--amber) 40%,transparent);background:color-mix(in srgb,var(--amber) 8%,transparent)}
+.var{display:inline-flex;align-items:center;font:600 12.5px/1.3 var(--f-mono);white-space:nowrap}
+.var.ok{color:var(--ok)}.var.bad{color:var(--bad)}.var.na{color:var(--muted)}
 
 </style>
 </head>
@@ -7626,6 +7628,132 @@ window.crearModuloCompras = function (G) {
 
 </script>
 <script>
+/* ---- js/produccion-data.js ---- */
+/* Copia de respaldo de la tabla de producción de la Planta Cevil ("Historico Produccion", planilla Ingeniería GMP, 19/11/2026).
+   Solo se usa si la hoja publicada no responde. */
+window.PRODUCCION_BASE = {"al": "19/11/2026", "rows": [{"mes": "2024-10", "pallets": 21079}, {"mes": "2024-11", "pallets": 22680}, {"mes": "2024-12", "pallets": 17528}, {"mes": "2025-01", "pallets": 17349}, {"mes": "2025-02", "pallets": 13085}, {"mes": "2025-03", "pallets": 18940}, {"mes": "2025-04", "pallets": 17810}, {"mes": "2025-05", "pallets": 25996}, {"mes": "2025-06", "pallets": 15618}, {"mes": "2025-07", "pallets": 6390}, {"mes": "2025-08", "pallets": 20352}, {"mes": "2025-09", "pallets": 21349}, {"mes": "2025-10", "pallets": 23164}, {"mes": "2025-11", "pallets": 20840}, {"mes": "2025-12", "pallets": 19446}, {"mes": "2026-01", "pallets": 17250}, {"mes": "2026-02", "pallets": 15656}, {"mes": "2026-03", "pallets": 17870}, {"mes": "2026-04", "pallets": 22866}, {"mes": "2026-05", "pallets": 14988}, {"mes": "2026-06", "pallets": 12640}, {"mes": "2026-07", "pallets": 18302}, {"mes": "2026-08", "pallets": 22000}, {"mes": "2026-09", "pallets": 23103}, {"mes": "2026-10", "pallets": 27726}]};
+
+</script>
+<script>
+/* ---- js/produccion.js ---- */
+/* PRODUCCIÓN · PLANTA CEVIL (Cerámica Marcos Paz) — Grupo MP
+   Muestra la tabla de la Planta Cevil de la hoja "Historico Produccion" (planilla Ingeniería GMP):
+   pallets producidos por mes y su evolución. Solo lectura.
+   window.crearModuloProduccion(G). */
+window.crearModuloProduccion = function (G) {
+  'use strict';
+  const { html, useState, useMemo, RC, Tile, tooltipStyle, U } = G;
+  const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+  const MESES_L = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+  const n0 = (v) => U.fmtN(v, 0);
+  const mesCorto = (k) => MESES[Number(k.slice(5, 7)) - 1] + ' ' + k.slice(2, 4);
+  const mesLargo = (k) => MESES_L[Number(k.slice(5, 7)) - 1] + ' ' + k.slice(0, 4);
+  const mesAnt = (k) => { const y = Number(k.slice(0, 4)), m = Number(k.slice(5, 7)); return m === 1 ? (y - 1) + '-12' : y + '-' + String(m - 1).padStart(2, '0'); };
+  const mismoAnt = (k) => (Number(k.slice(0, 4)) - 1) + k.slice(4);
+  const pct = (a, b) => (b ? Math.round(((a - b) / b) * 1000) / 10 : null);
+  function Var({ v, txt }) {
+    if (v == null) return html`<span class="lbl">${txt ? 'sin dato para comparar' : '—'}</span>`;
+    const cls = v > 0 ? 'ok' : v < 0 ? 'bad' : 'na';
+    return html`<span class=${'var ' + cls}>${v > 0 ? '▲ ' : v < 0 ? '▼ ' : '= '}${Math.abs(v).toLocaleString('es-AR')}%${txt ? ' ' + txt : ''}</span>`;
+  }
+
+  function prep(rows) {
+    const m = new Map();
+    (rows || []).forEach((r) => { if (r && /^\d{4}-\d{2}$/.test(r.mes) && isFinite(r.pallets)) m.set(r.mes, Number(r.pallets)); });
+    return Array.from(m.entries()).sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([mes, pallets]) => ({ mes, pallets }));
+  }
+
+  /* ---------------- 01 · EVOLUCIÓN ---------------- */
+  function EvolucionP({ rows, pal }) {
+    const R = useMemo(() => prep(rows), [rows]);
+    if (!R.length) return html`<div class="empty sec">No hay datos de producción.</div>`;
+    const idx = new Map(R.map((r) => [r.mes, r.pallets]));
+    const ult = R[R.length - 1];
+    const anio = ult.mes.slice(0, 4), prev = String(Number(anio) - 1);
+    const ytd = R.filter((r) => r.mes.startsWith(anio));
+    const ytdPrev = R.filter((r) => r.mes.startsWith(prev) && r.mes.slice(5) <= ult.mes.slice(5));
+    const sYtd = ytd.reduce((a, r) => a + r.pallets, 0), sPrev = ytdPrev.reduce((a, r) => a + r.pallets, 0);
+    const compYtd = ytdPrev.length === ytd.length;
+    const u12 = R.slice(-12), prom12 = Math.round(u12.reduce((a, r) => a + r.pallets, 0) / u12.length);
+    const max = R.reduce((a, r) => (r.pallets > a.pallets ? r : a), R[0]), min = R.reduce((a, r) => (r.pallets < a.pallets ? r : a), R[0]);
+    const promTodo = Math.round(R.reduce((a, r) => a + r.pallets, 0) / R.length);
+    const datos = R.map((r) => ({ k: r.mes, mes: mesCorto(r.mes), Pallets: r.pallets }));
+    const anios = Array.from(new Set(R.map((r) => r.mes.slice(0, 4)))).sort();
+    const colores = [pal.violet, pal.aqua, pal.lime, pal.amber, pal.rose];
+    const porMes = MESES.map((m, i) => { const o = { mes: m }; anios.forEach((y) => { const v = idx.get(y + '-' + String(i + 1).padStart(2, '0')); o[y] = v != null ? v : null; }); return o; });
+    const totales = anios.map((y) => { const xs = R.filter((r) => r.mes.startsWith(y)); const t = xs.reduce((a, r) => a + r.pallets, 0); return { y, t, n: xs.length, prom: Math.round(t / xs.length) }; });
+    const maxProm = Math.max(...totales.map((t) => t.prom));
+    return html`<div class="bento sec">
+      <${Tile} c="s3" title=${'Último mes · ' + mesLargo(ult.mes)} glow="var(--lime)">
+        <div class="big grad">${n0(ult.pallets)}</div><div class="note">pallets producidos</div>
+        <div class="col" style=${{ gap: 4, marginTop: 8 }}><${Var} v=${pct(ult.pallets, idx.get(mesAnt(ult.mes)))} txt="vs mes anterior"/><${Var} v=${pct(ult.pallets, idx.get(mismoAnt(ult.mes)))} txt=${'vs ' + mesCorto(mismoAnt(ult.mes))}/></div><//>
+      <${Tile} c="s3" title=${'Acumulado ' + anio}>
+        <div class="big">${n0(sYtd)}</div><div class="note">pallets de ${MESES[Number(ytd[0].mes.slice(5)) - 1]} a ${MESES[Number(ult.mes.slice(5)) - 1]} (${ytd.length} meses)</div>
+        <div style=${{ marginTop: 8 }}>${compYtd && sPrev ? html`<${Var} v=${pct(sYtd, sPrev)} txt=${'vs mismo período ' + prev}/>` : html`<span class="lbl">sin el mismo período de ${prev} completo</span>`}</div><//>
+      <${Tile} c="s3" title="Promedio mensual">
+        <div class="big">${n0(prom12)}</div><div class="note">pallets por mes, últimos ${u12.length} meses</div>
+        <div style=${{ marginTop: 8 }}><${Var} v=${pct(ult.pallets, prom12)} txt="el último mes vs el promedio"/></div><//>
+      <${Tile} c="s3" title="Mejor y peor mes">
+        <div class="big" style=${{ color: 'var(--ok)' }}>${n0(max.pallets)}</div><div class="note">récord: ${mesLargo(max.mes)}</div>
+        <div class="note" style=${{ marginTop: 6 }}>Mes más bajo: <b>${n0(min.pallets)}</b> en ${mesLargo(min.mes)}</div><//>
+
+      <${Tile} c="s12" title="Evolución mensual · pallets producidos" right=${html`<span class="lbl">- - - promedio de todo el período: <b class="mono">${n0(promTodo)}</b> pallets/mes</span>`}>
+        <div style=${{ height: 320 }}>${RC ? html`<${RC.ResponsiveContainer} width="100%" height="100%">
+          <${RC.ComposedChart} data=${datos} margin=${{ top: 10, right: 10, left: 4, bottom: 0 }}>
+            <defs><linearGradient id="pBar" x1="0" y1="1" x2="0" y2="0"><stop offset="0%" stop-color=${pal.aqua} stop-opacity=".55"/><stop offset="100%" stop-color=${pal.lime}/></linearGradient></defs>
+            <${RC.CartesianGrid} stroke=${pal.grid} vertical=${false}/>
+            <${RC.XAxis} dataKey="mes" tick=${{ fill: pal.axis, fontSize: 11, fontFamily: 'IBM Plex Mono, monospace' }} axisLine=${false} tickLine=${false} interval=${0} angle=${-35} textAnchor="end" height=${46}/>
+            <${RC.YAxis} yAxisId="p" tick=${{ fill: pal.axis, fontSize: 11 }} axisLine=${false} tickLine=${false} tickFormatter=${n0} width=${60}/>
+            <${RC.Tooltip} cursor=${{ fill: pal.grid }} contentStyle=${tooltipStyle} formatter=${(v, n) => [n0(v), n]}/>
+ <${RC.ReferenceLine} yAxisId="p" y=${promTodo} stroke=${pal.axis} strokeDasharray="4 4"/>
+            <${RC.Bar} yAxisId="p" dataKey="Pallets" fill="url(#pBar)" radius=${[6, 6, 0, 0]}/>
+          <//><//>` : null}</div>
+      <//>
+
+      <${Tile} c="s8" title="Comparación por año · mismo mes">
+        <div style=${{ height: 260 }}>${RC ? html`<${RC.ResponsiveContainer} width="100%" height="100%">
+          <${RC.LineChart} data=${porMes} margin=${{ top: 10, right: 10, left: 4, bottom: 0 }}>
+            <${RC.CartesianGrid} stroke=${pal.grid} vertical=${false}/>
+            <${RC.XAxis} dataKey="mes" tick=${{ fill: pal.axis, fontSize: 11, fontFamily: 'IBM Plex Mono, monospace' }} axisLine=${false} tickLine=${false}/>
+            <${RC.YAxis} tick=${{ fill: pal.axis, fontSize: 11 }} axisLine=${false} tickLine=${false} tickFormatter=${n0} width=${60}/>
+            <${RC.Tooltip} contentStyle=${tooltipStyle} formatter=${(v, n) => [n0(v) + ' pallets', n]}/>
+            <${RC.Legend} iconType="circle" wrapperStyle=${{ fontSize: 12 }}/>
+            ${anios.map((y, i) => html`<${RC.Line} key=${y} type="monotone" dataKey=${y} stroke=${colores[(i + colores.length - anios.length) % colores.length]} strokeWidth=${y === anio ? 3 : 2} dot=${{ r: 3 }} connectNulls=${false}/>`)}
+          <//><//>` : null}</div>
+      <//>
+      <${Tile} c="s4" title="Totales por año">
+        <div class="col" style=${{ gap: 12 }}>${totales.slice().reverse().map((t) => html`<div key=${t.y} class="inset">
+          <div class="row between"><b class="mono" style=${{ fontSize: 16 }}>${t.y}</b><span class="lbl">${t.n} mes${t.n === 1 ? '' : 'es'}${t.n < 12 ? ' con datos' : ''}</span></div>
+          <div class="disp" style=${{ fontSize: 24, fontWeight: 600, marginTop: 4 }}>${n0(t.t)} <small class="lbl">pallets</small></div>
+          <div class="row" style=${{ gap: 8, marginTop: 6, flexWrap: 'nowrap' }}><span class="hbar-t"><i class="lime" style=${{ width: (t.prom / maxProm) * 100 + '%' }}></i></span><span class="mono" style=${{ fontSize: 12 }}>${n0(t.prom)}/mes</span></div>
+        </div>`)}</div>
+      <//>
+    </div>`;
+  }
+
+  /* ---------------- 02 · DATOS MENSUALES ---------------- */
+  function TablaP({ rows }) {
+    const R = useMemo(() => prep(rows), [rows]);
+    const idx = new Map(R.map((r) => [r.mes, r.pallets]));
+    const max = Math.max(1, ...R.map((r) => r.pallets));
+    return html`<div class="bento sec"><${Tile} c="s12" cn="static" title="Pallets producidos por mes · Planta Cevil" right=${html`<span class="chip plain mono">${R.length} meses</span>`}>
+      <div class="tbl-wrap"><table class="tbl">
+        <thead><tr><th>Mes</th><th>Pallets producidos</th><th></th><th>vs mes anterior</th><th>vs mismo mes del año anterior</th></tr></thead>
+        <tbody>${R.slice().reverse().map((r) => html`<tr key=${r.mes}>
+          <td><b>${mesLargo(r.mes)}</b></td><td class="mono"><b>${n0(r.pallets)}</b></td>
+          <td style=${{ width: '28%' }}><span class="hbar-t"><i class=${r.pallets === max ? 'ok' : 'lime'} style=${{ width: (r.pallets / max) * 100 + '%' }}></i></span></td>
+          <td><${Var} v=${pct(r.pallets, idx.get(mesAnt(r.mes)))}/></td><td><${Var} v=${pct(r.pallets, idx.get(mismoAnt(r.mes)))}/></td>
+        </tr>`)}</tbody>
+      </table></div>
+      <p class="note" style=${{ marginBottom: 0 }}>Datos de la tabla de la Planta Cevil en la hoja “Historico Produccion”.</p>
+    <//></div>`;
+  }
+
+  return { EvolucionP, TablaP, prep };
+};
+
+</script>
+<script>
 /* ---- js/app.js ---- */
 /* Dashboard de Pozos de Agua Profunda — Grupo MP
    React 18 + htm (sin compilar) · Recharts · Leaflet · jsPDF */
@@ -7665,6 +7793,7 @@ window.crearModuloCompras = function (G) {
     clip: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5 12.5 20a5.5 5.5 0 0 1-7.8-7.8l8.6-8.5a3.7 3.7 0 0 1 5.2 5.2l-8.5 8.5a1.8 1.8 0 0 1-2.6-2.6l7.8-7.8"/></svg>`,
     gen: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="2.5"/><path d="M7 6V3.5M17 6V3.5M12.6 9.2 10 13h4l-2.6 3.8M6 22v-3M18 22v-3"/></svg>`,
     pin: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 22s7-6.2 7-12a7 7 0 0 0-14 0c0 5.8 7 12 7 12z"/><circle cx="12" cy="10" r="2.6"/></svg>`,
+    factory: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21V10l5 3V10l5 3V5h4v16"/><path d="M17 9h4v12"/><path d="M2 21h20"/><path d="M7 17h2M12 17h2"/></svg>`,
     grid: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="7" height="7" rx="2"/><rect x="13.5" y="3.5" width="7" height="7" rx="2"/><rect x="3.5" y="13.5" width="7" height="7" rx="2"/><rect x="13.5" y="13.5" width="7" height="7" rx="2"/></svg>`,
     cart: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2.5 3.5h2.6l2.4 11.2a1.6 1.6 0 0 0 1.6 1.3h8.2a1.6 1.6 0 0 0 1.6-1.2L21 8H6.1"/></svg>`,
     snow: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M3.3 7l17.4 10M3.3 17 20.7 7"/><path d="M9.5 3.5 12 6l2.5-2.5M9.5 20.5 12 18l2.5 2.5M3 10.3l3.4.9-.9 3.4M21 13.7l-3.4-.9.9-3.4M3.9 13.9l3.3-.9.9 3.3M20.1 10.1l-3.3.9-.9-3.3"/></svg>`,
@@ -8534,24 +8663,66 @@ window.crearModuloCompras = function (G) {
     if (!rows.length) throw new Error('la hoja publicada no tiene pedidos');
     return rows;
   }
-  async function comprasEnVivo() {
+  // Lee una pestaña publicada en la web de la planilla Ingeniería GMP y la interpreta con "leer".
+  async function hojaPublicada(gid, propio, leer, nombre) {
     const base = 'https://docs.google.com/spreadsheets/d/' + COMPRAS_ID;
-    const urls = [CFG.COMPRAS_CSV, base + '/pub?gid=' + COMPRAS_GID + '&single=true&output=csv', base + '/gviz/tq?tqx=out:csv&gid=' + COMPRAS_GID, base + '/export?format=csv&gid=' + COMPRAS_GID].filter(Boolean);
+    const urls = [propio, base + '/pub?gid=' + gid + '&single=true&output=csv', base + '/gviz/tq?tqx=out:csv&gid=' + gid, base + '/export?format=csv&gid=' + gid].filter(Boolean);
     let ultimo = null;
     for (const u of urls) {
       try {
         const r = await fetch(u + (u.includes('?') ? '&' : '?') + '_=' + Date.now(), { cache: 'no-store' });
         if (!r.ok) throw new Error('Google respondió ' + r.status);
-        return comprasDeCSV(await r.text());
-      } catch (err) { console.warn('Compras: no se pudo leer', u.split('?')[0], '·', err.message); ultimo = err; }
+        return leer(await r.text());
+      } catch (err) { console.warn(nombre + ': no se pudo leer', u.split('?')[0], '·', err.message); ultimo = err; }
     }
     throw ultimo || new Error('no se pudo leer la hoja publicada');
   }
+  const comprasEnVivo = () => hojaPublicada(COMPRAS_GID, CFG.COMPRAS_CSV, comprasDeCSV, 'Compras');
+
+  /* Producción · Planta Cevil: tabla "MES / Pallets Producidos" debajo del título "Cevil" en la hoja Historico Produccion. */
+  const PROD_GID = '1329681951';
+  const MES_N = { ene: 1, jan: 1, feb: 2, mar: 3, abr: 4, apr: 4, may: 5, jun: 6, jul: 7, ago: 8, aug: 8, sep: 9, set: 9, oct: 10, nov: 11, dic: 12, dec: 12 };
+  function mesDe(v) {
+    const t = nrm(v);
+    let m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (m) return m[3] + '-' + m[2].padStart(2, '0');
+    m = t.match(/^(\d{4})-(\d{2})/);
+    if (m) return m[1] + '-' + m[2];
+    m = t.match(/^([a-z]{3})[a-z]*\.?\s*(?:de\s+)?(\d{2}|\d{4})$/);
+    if (m && MES_N[m[1]]) return (m[2].length === 2 ? '20' + m[2] : m[2]) + '-' + String(MES_N[m[1]]).padStart(2, '0');
+    return '';
+  }
+  const numDe = (v) => { const t = String(v || '').replace(/\s/g, '').replace(/[.,](?=\d{3}(\D|$))/g, '').replace(',', '.'); const n = parseFloat(t); return isFinite(n) ? n : null; };
+  function produccionDeCSV(txt) {
+    if (/^\s*<(!doctype|html)/i.test(txt)) throw new Error('la hoja no está publicada (Google devolvió una página en lugar de los datos)');
+    const T = parseCSV(txt);
+    const hr = T.findIndex((r) => r.some((c) => nrm(c) === 'mes') && r.some((c) => nrm(c).includes('pallets')));
+    if (hr < 0) throw new Error('no encontré la tabla "MES / Pallets Producidos"');
+    const H = T[hr].map(nrm);
+    const palCols = H.map((h, j) => (h.includes('pallets') ? j : -1)).filter((j) => j >= 0);
+    let cevil = -1;                                   // columna del título "Cevil", arriba de la tabla
+    for (let i = Math.max(0, hr - 6); i < hr && cevil < 0; i++) T[i].forEach((c, j) => { if (nrm(c) === 'cevil') cevil = j; });
+    const pc = cevil >= 0 ? palCols.reduce((a, j) => (Math.abs(j - cevil) < Math.abs(a - cevil) ? j : a), palCols[0]) : palCols[palCols.length - 1];
+    let mc = -1;
+    for (let j = pc - 1; j >= 0 && mc < 0; j--) if (H[j] === 'mes') mc = j;
+    if (mc < 0) throw new Error('no encontré la columna MES de la tabla de Cevil');
+    const rows = [];
+    for (let i = hr + 1; i < T.length; i++) {
+      const mes = mesDe(T[i][mc]), p = numDe(T[i][pc]);
+      if (mes && p != null) rows.push({ mes, pallets: p });
+    }
+    if (!rows.length) throw new Error('la tabla de producción de Cevil está vacía');
+    return rows;
+  }
+  const produccionEnVivo = () => hojaPublicada(PROD_GID, CFG.PRODUCCION_CSV, produccionDeCSV, 'Producción');
+  const PTABS = [{ id: 'evolucion', n: '01', t: 'Evolución' }, { id: 'tabla', n: '02', t: 'Datos mensuales' }];
+  const P = window.crearModuloProduccion ? window.crearModuloProduccion(G) : null;
 
   /* Barra lateral: accesos generales del área (no son módulos de equipos). Para sumar uno nuevo, agregalo acá. */
   const RAIL = [
     { id: 'inicio', t: 'Menú principal', d: 'Pozos, bombas, grupos y frío', i: 'home' },
     { id: 'compras', t: 'Compras del área', d: 'Requerimientos y su estado', i: 'cart' },
+    { id: 'produccion', t: 'Producción Cevil', d: 'Cerámica Marcos Paz · pallets por mes', i: 'factory' },
     { id: 'energia', t: 'Tablero energético', d: 'Power BI · todo el grupo ↗', i: 'bolt', href: POWERBI_URL, cls: 'energia' }
   ].filter((x) => !('href' in x) || x.href);
   function Rail({ mod, go, badges }) {
@@ -8700,6 +8871,7 @@ window.crearModuloCompras = function (G) {
     if (m === 'pozos') return { mod: 'pozos', tab: TABS.some((x) => x.id === t) ? t : 'resumen', btab: 'resumen' };
     if (m === 'bombas' && B) return { mod: 'bombas', tab: 'resumen', btab: BTABS.some((x) => x.id === t) ? t : 'resumen' };
     if (m === 'grupos' && GR) return { mod: 'grupos', tab: 'resumen', btab: 'resumen', gtab: GTABS.some((x) => x.id === t) ? t : 'resumen' };
+    if (m === 'produccion' && P) return { mod: 'produccion', tab: 'resumen', btab: 'resumen', ptab: PTABS.some((x) => x.id === t) ? t : 'evolucion' };
     if (m === 'compras' && C) return { mod: 'compras', tab: 'resumen', btab: 'resumen', ctab: CTABS.some((x) => x.id === t) ? t : 'resumen' };
     if (m === 'frio' && F) return { mod: 'frio', tab: 'resumen', btab: 'resumen', ftab: FTABS.some((x) => x.id === t) ? t : 'resumen' };
     if (TABS.some((x) => x.id === m)) return { mod: 'pozos', tab: m, btab: 'resumen' };   // enlaces viejos (#ficha)
@@ -8728,6 +8900,9 @@ window.crearModuloCompras = function (G) {
     const [gtab, setGtab] = useState(h0.gtab || 'resumen');
     const [ftab, setFtab] = useState(h0.ftab || 'resumen');
     const [ctab, setCtab] = useState(h0.ctab || 'resumen');
+    const [ptab, setPtab] = useState(h0.ptab || 'evolucion');
+    const [prod, setProd] = useState(() => { const c = lsGet('pozos-gmp-produccion'); return c && Array.isArray(c.rows) ? Object.assign({ src: 'cache' }, c) : { rows: window.PRODUCCION_BASE ? window.PRODUCCION_BASE.rows : [], al: window.PRODUCCION_BASE ? window.PRODUCCION_BASE.al : '', src: 'copia' }; });
+    const prodPedida = useRef(false);
     const [compras, setCompras] = useState(() => { const c = lsGet('pozos-gmp-compras'); return c && Array.isArray(c.rows) ? Object.assign({ src: 'cache' }, c) : { rows: window.COMPRAS_BASE ? window.COMPRAS_BASE.rows : [], al: window.COMPRAS_BASE ? window.COMPRAS_BASE.al : '', src: 'copia' }; });
     const [filtroC, setFiltroC] = useState(null);
     const comprasPedidas = useRef(false);
@@ -8871,10 +9046,23 @@ window.crearModuloCompras = function (G) {
     useEffect(() => { if (loaded && store.mode === 'local') lsSet(LS_DATA, { pozos: data, bombas: rawB.bombas, mants: rawB.mants, grupos: rawG.bombas, mantsG: rawG.mants, frio: rawF.bombas, mantsF: rawF.mants, planosF: rawF.planos, ubicF: rawF.ubic }); }, [data, rawB, rawG, rawF, loaded]);
     useEffect(() => { U.loadLogo().then((l) => l && setLogoUrl(l.url)); }, []);
     useEffect(() => {
-      const h = mod === 'inicio' ? '#inicio' : '#' + mod + '/' + (mod === 'pozos' ? tab : mod === 'grupos' ? gtab : mod === 'frio' ? ftab : mod === 'compras' ? ctab : btab);
+      const h = mod === 'inicio' ? '#inicio' : '#' + mod + '/' + (mod === 'pozos' ? tab : mod === 'grupos' ? gtab : mod === 'frio' ? ftab : mod === 'compras' ? ctab : mod === 'produccion' ? ptab : btab);
       if (location.hash !== h) history.replaceState(null, '', h);
       window.scrollTo({ top: 0, behavior: 'smooth' });
-    }, [mod, tab, btab, gtab, ftab, ctab]);
+    }, [mod, tab, btab, gtab, ftab, ctab, ptab]);
+    const cargarProd = useCallback(async (aviso) => {
+      setProd((c) => Object.assign({}, c, { cargando: true }));
+      try {
+        const rows = await produccionEnVivo();
+        const c = { rows, al: new Date().toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' }) };
+        lsSet('pozos-gmp-produccion', c);
+        setProd(Object.assign({ src: 'vivo', error: '' }, c));
+        if (aviso) toast('Producción actualizada desde la planilla.');
+      } catch (err) {
+        console.error(err);
+        setProd((c) => Object.assign({}, c, { cargando: false, error: store.mode === 'sheets' ? (err.message || String(err)) : '' }));
+      }
+    }, []);
     // Compras: se lee de la otra planilla (Ingeniería GMP) recién cuando se abre la página.
     const cargarCompras = useCallback(async (aviso) => {
       setCompras((c) => Object.assign({}, c, { cargando: true }));
@@ -8896,7 +9084,10 @@ window.crearModuloCompras = function (G) {
       }
     }, []);
     useEffect(() => { if (ctab !== 'pendientes') setFiltroC(null); }, [ctab]);
-    useEffect(() => { if (mod === 'compras' && !comprasPedidas.current) { comprasPedidas.current = true; cargarCompras(); } }, [mod]);
+    useEffect(() => {
+      if (mod === 'compras' && !comprasPedidas.current) { comprasPedidas.current = true; cargarCompras(); }
+      if (mod === 'produccion' && !prodPedida.current) { prodPedida.current = true; cargarProd(); }
+    }, [mod]);
 
     const authFail = (err) => {
       if (err.auth) { borrarSesion(); setAdmin(null); toast('Tu sesión de administrador venció. Ingresá de nuevo para guardar.', 'bad'); }
@@ -8977,9 +9168,9 @@ window.crearModuloCompras = function (G) {
     const onLogin = (s) => { lsSet(LS_ADMIN, s); setAdmin(s); setShowLogin(false); toast('Hola, ' + s.user + '. Ya podés cargar y modificar datos.'); };
     const logout = () => { borrarSesion(); setAdmin(null); toast('Sesión cerrada. Quedaste en modo lectura.'); };
 
-    const tabs = mod === 'bombas' ? BTABS : mod === 'grupos' ? GTABS : mod === 'frio' ? FTABS : mod === 'compras' ? CTABS : TABS;
-    const curTab = mod === 'bombas' ? btab : mod === 'grupos' ? gtab : mod === 'frio' ? ftab : mod === 'compras' ? ctab : tab;
-    const setCur = mod === 'bombas' ? setBtab : mod === 'grupos' ? setGtab : mod === 'frio' ? setFtab : mod === 'compras' ? setCtab : setTab;
+    const tabs = mod === 'bombas' ? BTABS : mod === 'grupos' ? GTABS : mod === 'frio' ? FTABS : mod === 'compras' ? CTABS : mod === 'produccion' ? PTABS : TABS;
+    const curTab = mod === 'bombas' ? btab : mod === 'grupos' ? gtab : mod === 'frio' ? ftab : mod === 'compras' ? ctab : mod === 'produccion' ? ptab : tab;
+    const setCur = mod === 'bombas' ? setBtab : mod === 'grupos' ? setGtab : mod === 'frio' ? setFtab : mod === 'compras' ? setCtab : mod === 'produccion' ? setPtab : setTab;
     const step = (d) => { const i = tabs.findIndex((t) => t.id === curTab); setCur(tabs[(i + d + tabs.length) % tabs.length].id); };
     useEffect(() => {
       const f = (ev) => {
@@ -9072,9 +9263,11 @@ window.crearModuloCompras = function (G) {
       : mod === 'grupos' ? html`Grupos <span class="grad">electrógenos</span>`
       : mod === 'frio' ? html`Equipos de <span class="grad">frío</span>`
       : mod === 'compras' ? html`Compras del <span class="grad">área</span>`
+      : mod === 'produccion' ? html`Producción · <span class="grad">Planta Cevil</span>`
       : html`Área de <span class="grad">Ingeniería Industrial</span>`;
     const sub = mod === 'pozos' ? html`${wells.length} pozos de <a href=${sheetUrl} target="_blank" rel="noopener">${sheetName} › POZOS DE AGUA</a>${vivo}`
       : mod === 'grupos' ? html`${grupos.length} grupos de <a href=${sheetUrl} target="_blank" rel="noopener">${sheetName} › Registro GRUPO</a>${gSrc === 'vivo' ? ' · en vivo' : gSrc === 'local' ? '' : ' · copia del 16/11/2026'}`
+      : mod === 'produccion' ? html`Cerámica Marcos Paz · ${(prod.rows || []).length} meses de <a href=${'https://docs.google.com/spreadsheets/d/' + COMPRAS_ID + '/edit#gid=' + PROD_GID} target="_blank" rel="noopener">Ingeniería GMP › Historico Produccion</a>${prod.cargando ? ' · actualizando…' : prod.src === 'vivo' ? ' · en vivo' : prod.al ? ' · copia del ' + prod.al : ''} · solo lectura`
       : mod === 'compras' ? html`${(compras.rows || []).length} requerimientos de <a href=${compras.url || COMPRAS_URL} target="_blank" rel="noopener">${compras.nombre || 'Ingeniería GMP'} › ${compras.hoja || 'Requerimientos de compras'}</a>${compras.cargando ? ' · actualizando…' : compras.src === 'vivo' ? ' · en vivo' : compras.al ? ' · copia del ' + compras.al : ''} · solo lectura`
       : mod === 'frio' ? html`${frio.length} equipos de <a href=${sheetUrl} target="_blank" rel="noopener">${sheetName} › Registro AA</a>${fSrc === 'vivo' ? ' · en vivo' : fSrc === 'local' ? '' : ' · copia del 17/11/2026'}`
       : mod === 'bombas' ? html`${bombas.length} bombas de <a href=${sheetUrl} target="_blank" rel="noopener">${sheetName} › Registro BOMBA</a>${bSrc === 'vivo' ? ' · en vivo' : bSrc === 'local' ? '' : ' · copia del 11/11/2026'}`
@@ -9098,6 +9291,7 @@ window.crearModuloCompras = function (G) {
             <button class=${theme === 'dark' ? 'on' : ''} onClick=${() => setTheme('dark')}>${I.moon} Oscuro</button>
           </div>
           ${mod === 'compras' ? html`<button class="btn" disabled=${compras.cargando} onClick=${() => cargarCompras(true)}>${compras.cargando ? 'Actualizando…' : '↻ Actualizar'}</button>` : null}
+          ${mod === 'produccion' ? html`<button class="btn" disabled=${prod.cargando} onClick=${() => cargarProd(true)}>${prod.cargando ? 'Actualizando…' : '↻ Actualizar'}</button>` : null}
           ${mod !== 'inicio' ? html`<div class="navbtns"><button class="btn" onClick=${() => step(-1)}>← Anterior</button><button class="btn" onClick=${() => step(1)}>Siguiente →</button></div>` : null}
           ${store.mode === 'sheets' ? (admin
             ? html`<div class="admin-pill"><span class="dot ok"></span>${I.user}<span>${admin.user}</span><button class="btn btn-sm" onClick=${logout}>Salir</button></div>`
@@ -9107,7 +9301,7 @@ window.crearModuloCompras = function (G) {
 
       ${mod !== 'inicio' ? html`<nav class="tabs" role="tablist">
         <button class="tab tab-home" onClick=${() => setMod('inicio')} title="Volver al menú principal">${I.home}<span>Menú</span></button>
-        ${MODS.filter((x) => x.id !== mod && mod !== 'compras').map((x) => html`<button key=${x.id} class="tab tab-switch" onClick=${() => setMod(x.id)} title=${'Ir a ' + x.t}>${I[x.i]}<span>${x.t}</span></button>`)}
+        ${MODS.filter((x) => x.id !== mod && mod !== 'compras' && mod !== 'produccion').map((x) => html`<button key=${x.id} class="tab tab-switch" onClick=${() => setMod(x.id)} title=${'Ir a ' + x.t}>${I[x.i]}<span>${x.t}</span></button>`)}
         <span class="tab-sep"></span>
         ${tabs.map((t) => html`<button key=${t.id} role="tab" aria-selected=${t.id === curTab} class=${'tab' + (t.id === curTab ? ' on' : '')} onClick=${() => setCur(t.id)}><span class="n">${t.n}</span>${t.t}</button>`)}
       </nav>` : null}
@@ -9126,6 +9320,10 @@ window.crearModuloCompras = function (G) {
         ${mod === 'grupos' && grupos.length && gtab === 'ficha' ? html`<${GR.FichaB} grupos=${grupos} mants=${mantsG} sel=${selGG} setSel=${setSelG} canEdit=${canEdit} mutateB=${mutateG} toast=${toast} onPdf=${onPdfG}/>` : null}
         ${mod === 'grupos' && grupos.length && gtab === 'mant' ? html`<${GR.MantsTab} grupos=${grupos} mants=${mantsG} canEdit=${canEdit} mutateB=${mutateG} toast=${toast} openB=${openG} pal=${pal}/>` : null}
         ${mod === 'grupos' && grupos.length && gtab === 'informe' ? html`<${GR.InformeB} grupos=${grupos} mants=${mantsG} openB=${openG} onPdf=${onPdfG} logoUrl=${logoUrl}/>` : null}
+        ${mod === 'produccion' && prod.error ? html`<div class="aviso-err"><b>No se pudo leer la hoja de producción:</b> ${prod.error}. Se muestra la última copia guardada (${prod.al || 'sin fecha'}).
+          Revisá que la pestaña “Historico Produccion” también esté publicada en la web. <button class="btn btn-sm" onClick=${() => cargarProd(true)}>Reintentar</button></div>` : null}
+        ${mod === 'produccion' && ptab === 'evolucion' ? html`<${P.EvolucionP} rows=${prod.rows || []} pal=${pal}/>` : null}
+        ${mod === 'produccion' && ptab === 'tabla' ? html`<${P.TablaP} rows=${prod.rows || []}/>` : null}
         ${mod === 'compras' && ctab === 'resumen' ? html`<${C.ResumenC} rows=${compras.rows || []} pal=${pal} goTab=${setCtab} verPend=${(f) => { setFiltroC(f); setCtab('pendientes'); }}/>` : null}
         ${mod === 'compras' && ctab === 'pendientes' ? html`<${C.PendientesC} rows=${compras.rows || []} filtro=${filtroC}/>` : null}
         ${mod === 'compras' && ctab === 'todos' ? html`<${C.ListaC} rows=${compras.rows || []}/>` : null}
@@ -9149,6 +9347,7 @@ window.crearModuloCompras = function (G) {
         ${mod !== 'inicio' ? html`<span><kbd>←</kbd> <kbd>→</kbd> para avanzar entre secciones</span>` : html`<span>Elegí un módulo para empezar</span>`}
         <span>${mod === 'frio' ? 'PLANTA-SECTOR-(C COIRON · V viejo)-CONFIG-N° · CONFIG = compresores · vent. condensador · vent. evaporador'
           : mod === 'compras' ? 'Solo lectura · los pedidos se cargan y editan en la hoja Requerimientos de compras'
+          : mod === 'produccion' ? 'Solo lectura · los datos se cargan en la hoja Historico Produccion (tabla Cevil)'
           : mod === 'grupos' ? 'UNIDAD-SECTOR-(F fijo · M móvil)-kVA-MOTOR-GENERADOR-N°'
           : mod === 'bombas' ? 'FINCA-SECTOR-TIPO-INSTALACIÓN-HP · BP pozo · BH antiheladas · BR riego · BF fertirriego · BB booster · S sumergida · C centrífuga'
           : mod === 'pozos' ? 'FINCA-SECTOR-BP-INSTALACIÓN-HP · BP = bomba de pozo · S = sumergida' : 'Grupo MP · Ingeniería Industrial'}</span>
