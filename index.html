@@ -7710,7 +7710,7 @@ window.crearModuloCompras = function (G) {
           const j = await (await fetch(u.toString())).json();
           if (!j.ok) throw new Error(j.error || 'No se pudo leer la hoja de compras');
           // Implementación vieja del Apps Script: no conoce "compras" y devuelve los datos de siempre.
-          if (!Array.isArray(j.rows)) throw new Error('el Apps Script publicado todavía no lee compras. Pegá el Code.gs nuevo, ejecutá setup y creá una Nueva versión de la implementación');
+          if (!Array.isArray(j.rows)) throw new Error('la implementación del Apps Script que usa la página es una versión anterior (' + (j.version ? 'versión ' + j.version : 'sin número de versión, anterior al 19/11') + ') y no lee compras. Revisá que el Code.gs nuevo esté guardado y que en Implementar › Gestionar implementaciones hayas elegido Nueva versión en la misma implementación cuya URL está en js/config.js');
           return j;
         },
         async plano(id) {
@@ -8485,7 +8485,64 @@ window.crearModuloCompras = function (G) {
     { id: 'todos', n: '03', t: 'Todos los requerimientos' }
   ];
   const C = window.crearModuloCompras ? window.crearModuloCompras(G) : null;
-  const COMPRAS_URL = CFG.COMPRAS_URL || 'https://docs.google.com/spreadsheets/d/1ymlgKOs-JUEOzjKK4ti0_oKbY5p7ksIDTOmgyGspupQ/edit#gid=941641751';
+  const COMPRAS_ID = '1ymlgKOs-JUEOzjKK4ti0_oKbY5p7ksIDTOmgyGspupQ', COMPRAS_GID = '941641751';
+  const COMPRAS_URL = CFG.COMPRAS_URL || 'https://docs.google.com/spreadsheets/d/' + COMPRAS_ID + '/edit#gid=' + COMPRAS_GID;
+
+  /* Compras: se lee en vivo la hoja publicada en la web (Archivo › Compartir › Publicar en la web), como CSV.
+     Si en js/config.js ponés COMPRAS_CSV con el enlace que da Google al publicar, se usa ese primero. */
+  function parseCSV(t) {
+    const out = []; let row = [], f = '', q = false;
+    for (let i = 0; i < t.length; i++) {
+      const c = t[i];
+      if (q) { if (c === '"') { if (t[i + 1] === '"') { f += '"'; i++; } else q = false; } else f += c; }
+      else if (c === '"') q = true;
+      else if (c === ',') { row.push(f); f = ''; }
+      else if (c === '\n' || c === '\r') { if (c === '\r' && t[i + 1] === '\n') i++; row.push(f); out.push(row); row = []; f = ''; }
+      else f += c;
+    }
+    if (f !== '' || row.length) { row.push(f); out.push(row); }
+    return out;
+  }
+  const nrm = (x) => String(x || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
+  function comprasDeCSV(txt) {
+    if (/^\s*<(!doctype|html)/i.test(txt)) throw new Error('la hoja no está publicada (Google devolvió una página en lugar de los datos)');
+    const T = parseCSV(txt);
+    const hr = T.findIndex((r, i) => i < 15 && r.some((c) => /^n\S*\s*de\s*req/.test(nrm(c))));
+    if (hr < 0) throw new Error('no encontré la columna "N° de Req" en la hoja publicada');
+    const H = T[hr].map(nrm);
+    const col = (f) => H.findIndex((h) => h && f(h));
+    const c = { req: col((h) => /^n\S*\s*de\s*req/.test(h)), estado: col((h) => h.startsWith('estado')), prioridad: col((h) => h.startsWith('prioridad')), descripcion: col((h) => h.startsWith('descrip')),
+      unidad: col((h) => h.startsWith('unidad')), tipo: col((h) => h === 'tipo'), fsol: col((h) => h.includes('solicitud')), fent: col((h) => h.includes('entrega')),
+      asignado: col((h) => h.startsWith('seguimiento') || h.includes('asignad') || h.startsWith('responsable') || h.includes('a cargo')) };
+    const fecha = (v) => {
+      const m = String(v || '').trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+      if (m) return Number(m[3]) < 1950 ? ['', ''] : [m[3] + '-' + m[2].padStart(2, '0') + '-' + m[1].padStart(2, '0'), ''];
+      return ['', String(v || '').trim()];
+    };
+    const rows = [];
+    for (let i = hr + 1; i < T.length; i++) {
+      const r = T[i], g = (k) => (c[k] >= 0 ? String(r[c[k]] || '').trim() : '');
+      const req = g('req');
+      if (!req || /^n\S*\s*de\s*req/.test(nrm(req))) continue;
+      const fs = fecha(g('fsol')), fe = fecha(g('fent'));
+      rows.push({ req, estado: g('estado'), prioridad: g('prioridad'), descripcion: g('descripcion'), unidad: g('unidad'), tipo: g('tipo'), fsol: fs[0], fsolTxt: fs[1], fent: fe[0], fentTxt: fe[1], asignado: g('asignado') });
+    }
+    if (!rows.length) throw new Error('la hoja publicada no tiene pedidos');
+    return rows;
+  }
+  async function comprasEnVivo() {
+    const base = 'https://docs.google.com/spreadsheets/d/' + COMPRAS_ID;
+    const urls = [CFG.COMPRAS_CSV, base + '/pub?gid=' + COMPRAS_GID + '&single=true&output=csv', base + '/gviz/tq?tqx=out:csv&gid=' + COMPRAS_GID, base + '/export?format=csv&gid=' + COMPRAS_GID].filter(Boolean);
+    let ultimo = null;
+    for (const u of urls) {
+      try {
+        const r = await fetch(u + (u.includes('?') ? '&' : '?') + '_=' + Date.now(), { cache: 'no-store' });
+        if (!r.ok) throw new Error('Google respondió ' + r.status);
+        return comprasDeCSV(await r.text());
+      } catch (err) { console.warn('Compras: no se pudo leer', u.split('?')[0], '·', err.message); ultimo = err; }
+    }
+    throw ultimo || new Error('no se pudo leer la hoja publicada');
+  }
 
   /* Barra lateral: accesos generales del área (no son módulos de equipos). Para sumar uno nuevo, agregalo acá. */
   const RAIL = [
@@ -8811,17 +8868,22 @@ window.crearModuloCompras = function (G) {
     }, [mod, tab, btab, gtab, ftab, ctab]);
     // Compras: se lee de la otra planilla (Ingeniería GMP) recién cuando se abre la página.
     const cargarCompras = useCallback(async (aviso) => {
-      if (store.mode !== 'sheets') return;
       setCompras((c) => Object.assign({}, c, { cargando: true }));
       try {
-        const j = await store.compras();
-        const c = { rows: j.rows, nombre: j.nombre, hoja: j.hoja, url: j.url, al: new Date().toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' }) };
+        let j;
+        try { j = { rows: await comprasEnVivo() }; }                       // 1) hoja publicada en la web: directo y en vivo
+        catch (e1) {
+          if (store.mode !== 'sheets') throw e1;
+          try { j = await store.compras(); }                                // 2) respaldo: a través del Apps Script
+          catch (e2) { throw new Error('la hoja publicada no respondió (' + e1.message + ') y el Apps Script tampoco (' + e2.message + ')'); }
+        }
+        const c = { rows: j.rows, nombre: j.nombre || 'Ingeniería GMP', hoja: j.hoja || 'Requerimientos de compras', url: j.url || COMPRAS_URL, al: new Date().toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' }) };
         lsSet('pozos-gmp-compras', c);
         setCompras(Object.assign({ src: 'vivo', error: '' }, c));
         if (aviso) toast('Compras actualizadas desde la planilla.');
       } catch (err) {
         console.error(err);
-        setCompras((c) => Object.assign({}, c, { cargando: false, error: err.message || String(err) }));
+        setCompras((c) => Object.assign({}, c, { cargando: false, error: store.mode === 'sheets' ? (err.message || String(err)) : '' }));
       }
     }, []);
     useEffect(() => { if (ctab !== 'pendientes') setFiltroC(null); }, [ctab]);
@@ -9028,7 +9090,7 @@ window.crearModuloCompras = function (G) {
             <button class=${theme === 'light' ? 'on' : ''} onClick=${() => setTheme('light')}>${I.sun} Claro</button>
             <button class=${theme === 'dark' ? 'on' : ''} onClick=${() => setTheme('dark')}>${I.moon} Oscuro</button>
           </div>
-          ${mod === 'compras' && store.mode === 'sheets' ? html`<button class="btn" disabled=${compras.cargando} onClick=${() => cargarCompras(true)}>${compras.cargando ? 'Actualizando…' : '↻ Actualizar'}</button>` : null}
+          ${mod === 'compras' ? html`<button class="btn" disabled=${compras.cargando} onClick=${() => cargarCompras(true)}>${compras.cargando ? 'Actualizando…' : '↻ Actualizar'}</button>` : null}
           ${mod !== 'inicio' ? html`<div class="navbtns"><button class="btn" onClick=${() => step(-1)}>← Anterior</button><button class="btn" onClick=${() => step(1)}>Siguiente →</button></div>` : null}
           ${store.mode === 'sheets' ? (admin
             ? html`<div class="admin-pill"><span class="dot ok"></span>${I.user}<span>${admin.user}</span><button class="btn btn-sm" onClick=${logout}>Salir</button></div>`
