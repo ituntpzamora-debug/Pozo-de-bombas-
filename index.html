@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="es">
-<!-- Área de Ingeniería Industrial · Grupo MP (pozos, bombas, grupos electrógenos y equipos de frío) · versión 2026-11-19 · todo en un solo archivo (estilos, código y logo). -->
+<!-- Área de Ingeniería Industrial · Grupo MP (pozos, bombas, grupos electrógenos y equipos de frío) · versión 2026-11-26 · todo en un solo archivo (estilos, código y logo). -->
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -7435,30 +7435,17 @@ window.crearModuloCompras = function (G) {
         <div class="big grad">${medA != null ? medA : '—'}<small style=${{ fontSize: 18 }}> días</small></div>
         <div class="note">mediana desde el pedido hasta la entrega · ${plazos(anio).length} entregas${medP != null ? ` · ${prev}: ${medP} días` : ''}</div><//>
 
-      <${Tile} c="s8" title="Pedidos y entregas · últimos 12 meses">
-        <div style=${{ height: 230 }}>${RC ? html`<${RC.ResponsiveContainer} width="100%" height="100%">
-          <${RC.BarChart} data=${meses} margin=${{ top: 6, right: 6, left: -22, bottom: 0 }} barGap=${3} barCategoryGap="22%">
-            <defs>
-              <linearGradient id="cPed" x1="0" y1="1" x2="0" y2="0"><stop offset="0%" stop-color=${pal.violet}/><stop offset="100%" stop-color=${pal.aqua}/></linearGradient>
-              <linearGradient id="cEnt" x1="0" y1="1" x2="0" y2="0"><stop offset="0%" stop-color=${pal.aqua}/><stop offset="100%" stop-color=${pal.lime}/></linearGradient>
-            </defs>
-            <${RC.CartesianGrid} stroke=${pal.grid} vertical=${false}/>
-            <${RC.XAxis} dataKey="mes" tick=${{ fill: pal.axis, fontSize: 11, fontFamily: 'IBM Plex Mono, monospace' }} axisLine=${false} tickLine=${false}/>
-            <${RC.YAxis} allowDecimals=${false} tick=${{ fill: pal.axis, fontSize: 11 }} axisLine=${false} tickLine=${false}/>
-            <${RC.Tooltip} cursor=${{ fill: pal.grid }} contentStyle=${tooltipStyle}/>
-            <${RC.Legend} iconType="circle" wrapperStyle=${{ fontSize: 12 }}/>
-            <${RC.Bar} dataKey="Pedidos" fill="url(#cPed)" radius=${[6, 6, 0, 0]}/>
-            <${RC.Bar} dataKey="Entregados" fill="url(#cEnt)" radius=${[6, 6, 0, 0]}/>
-          <//><//>` : null}</div>
+      <${Tile} c="s12" title="Histórico por año" cn="static">
+        <div class="tbl-wrap"><table class="tbl">
+          <thead><tr><th>Año</th><th>Pedidos</th><th>Entregados</th><th>Pendientes</th><th title="Finalizar o anular">Cierre</th><th title="Entregados sobre lo pedido, sin contar los pedidos de cierre">% entregado</th><th>Plazo (mediana)</th><th>Materiales</th><th>Servicios</th></tr></thead>
+          <tbody>${hist.map((h) => html`<tr key=${h.y}><td class="mono"><b>${h.y}</b></td><td class="mono">${h.n}</td><td class="mono">${h.ent}</td>
+            <td>${h.ab ? html`<span class="chip warn"><i></i>${h.ab}</span>` : html`<span class="lbl">0</span>`}</td>
+            <td>${h.cerr ? html`<span class="chip fin">${h.cerr}</span>` : html`<span class="lbl">0</span>`}</td>
+            <td><div class="row" style=${{ gap: 8, flexWrap: 'nowrap' }}><span class="bar" style=${{ width: 90, flex: 'none' }}><i style=${{ width: h.pct + '%' }}></i></span><span class="mono">${h.pct}%</span></div></td>
+            <td class="mono">${h.med != null ? h.med + ' días' : '—'}</td><td class="mono">${h.mat}</td><td class="mono">${h.serv}</td></tr>`)}</tbody>
+        </table></div>
+        <p class="note" style=${{ marginBottom: 0 }}>% entregado = entregados sobre lo pedido, sin contar los pedidos de cierre (finalizar / anular), porque esos no se van a comprar.</p>
       <//>
-      <${Tile} c="s4" title="Antigüedad de lo pendiente">
-        <div class="col" style=${{ gap: 10 }}>${buckets.map((b) => html`<div key=${b.t} class="hbar">
-          <span class="lbl" style=${{ width: 78 }}>${b.t}</span>
-          <span class="hbar-t"><i class=${b.cls} style=${{ width: (b.n / maxB) * 100 + '%' }}></i></span>
-          <b class="mono">${b.n}</b></div>`)}</div>
-        <p class="note" style=${{ marginBottom: 0 }}>Días desde la fecha de solicitud de los ${esp.length} pedidos pendientes de entrega (no entregados y parciales).</p>
-      <//>
-
       <${Tile} c="s4" title="Pendientes por responsable" right=${html`<span class="lbl">Tocá para ver</span>`}>
         <div class="col">${porAsig.map((x) => html`<button key=${x.a} class="prov-row" onClick=${() => verPend({ asig: x.a === 'Sin asignar' ? '-' : x.a })}>
           <span class=${'asig-ic' + (x.a === 'Sin asignar' ? ' vacio' : '')}>${I.user}</span>
@@ -7490,17 +7477,6 @@ window.crearModuloCompras = function (G) {
         ${urg.length ? html`<div class="groups">${urg.map((r) => html`<${Tarjeta} key=${r.req} r=${r}/>`)}</div>` : html`<div class="empty">No hay pedidos pendientes.</div>`}
       <//>
 
-      <${Tile} c="s12" title="Histórico por año" cn="static">
-        <div class="tbl-wrap"><table class="tbl">
-          <thead><tr><th>Año</th><th>Pedidos</th><th>Entregados</th><th>Pendientes</th><th title="Finalizar o anular">Cierre</th><th title="Entregados sobre lo pedido, sin contar los pedidos de cierre">% entregado</th><th>Plazo (mediana)</th><th>Materiales</th><th>Servicios</th></tr></thead>
-          <tbody>${hist.map((h) => html`<tr key=${h.y}><td class="mono"><b>${h.y}</b></td><td class="mono">${h.n}</td><td class="mono">${h.ent}</td>
-            <td>${h.ab ? html`<span class="chip warn"><i></i>${h.ab}</span>` : html`<span class="lbl">0</span>`}</td>
-            <td>${h.cerr ? html`<span class="chip fin">${h.cerr}</span>` : html`<span class="lbl">0</span>`}</td>
-            <td><div class="row" style=${{ gap: 8, flexWrap: 'nowrap' }}><span class="bar" style=${{ width: 90, flex: 'none' }}><i style=${{ width: h.pct + '%' }}></i></span><span class="mono">${h.pct}%</span></div></td>
-            <td class="mono">${h.med != null ? h.med + ' días' : '—'}</td><td class="mono">${h.mat}</td><td class="mono">${h.serv}</td></tr>`)}</tbody>
-        </table></div>
-        <p class="note" style=${{ marginBottom: 0 }}>% entregado = entregados sobre lo pedido, sin contar los pedidos de cierre (finalizar / anular), porque esos no se van a comprar.</p>
-      <//>
     </div>`;
   }
 
@@ -8882,7 +8858,6 @@ window.crearModuloProduccion = function (G) {
     if (m === 'produccion' && P) return { mod: 'produccion', tab: 'resumen', btab: 'resumen', ptab: PTABS.some((x) => x.id === t) ? t : 'evolucion' };
     if (m === 'compras' && C) return { mod: 'compras', tab: 'resumen', btab: 'resumen', ctab: CTABS.some((x) => x.id === t) ? t : 'resumen' };
     if (m === 'frio' && F) return { mod: 'frio', tab: 'resumen', btab: 'resumen', ftab: FTABS.some((x) => x.id === t) ? t : 'resumen' };
-    if (TABS.some((x) => x.id === m)) return { mod: 'pozos', tab: m, btab: 'resumen' };   // enlaces viejos (#ficha)
     return { mod: 'inicio', tab: 'resumen', btab: 'resumen' };
   }
 
@@ -8901,7 +8876,11 @@ window.crearModuloProduccion = function (G) {
   function App() {
     const [theme, setTheme] = useTheme();
     const pal = PAL[theme];
-    const h0 = useMemo(leerHash, []);
+    const h0 = useMemo(() => {
+      let recarga = false;
+      try { recarga = sessionStorage.getItem('gmp-abierta') === '1'; sessionStorage.setItem('gmp-abierta', '1'); } catch (e) {}
+      return recarga ? leerHash() : { mod: 'inicio', tab: 'resumen', btab: 'resumen' };
+    }, []);
     const [mod, setMod] = useState(h0.mod);
     const [tab, setTab] = useState(h0.tab);
     const [btab, setBtab] = useState(h0.btab);
