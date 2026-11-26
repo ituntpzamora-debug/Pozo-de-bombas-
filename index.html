@@ -545,6 +545,27 @@ a.rail-item{text-decoration:none}
 .tbl-trab td.ots{min-width:150px}
 .tbl-trab td.ots .adj{margin:0 4px 4px 0}
 .tbl-trab td.desc{min-width:260px}
+/* ===== Registro de cambios ===== */
+.chip.org-app{color:var(--aqua);background:color-mix(in srgb,var(--aqua) 14%,transparent);font-weight:600}
+.chip.org-pla{color:var(--amber);background:color-mix(in srgb,var(--amber) 14%,transparent);font-weight:600}
+.cmb-quien{margin-top:6px;font-size:clamp(20px,2.2vw,26px);font-weight:600;letter-spacing:-.01em;overflow-wrap:anywhere}
+.cmb-cuando{margin-top:2px;font-weight:600}
+.cmb-que{margin-top:8px;line-height:1.4;overflow-wrap:anywhere}
+.cmb-plan{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}
+.cmb-pl{display:flex;flex-direction:column;gap:2px;padding:12px 14px;border-radius:14px;background:var(--inset);color:inherit;text-decoration:none}
+.cmb-pl b{font-size:18px}
+.cmb-pl:hover{outline:1px solid var(--stroke)}
+@media(min-width:760px){.filters.filters-c{grid-template-columns:2fr repeat(4,1fr) auto}}
+.tbl-cmb td.desc{min-width:280px;overflow-wrap:anywhere}
+.tbl-cmb td.donde{min-width:170px}
+.cmb-det{margin-top:2px;font-size:13px;color:var(--muted);line-height:1.4}
+.ult-cambio{grid-column:1/-1;display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:10px 16px;border-radius:16px;border:1px solid var(--stroke);background:linear-gradient(160deg,var(--glass2),var(--glass));color:inherit;font:inherit;cursor:pointer}
+.ult-cambio:hover{border-color:var(--lime)}
+.uc-ic{flex:none;display:grid;place-items:center;width:32px;height:32px;border-radius:10px;background:var(--inset);color:var(--lime)}
+.uc-ic svg{width:18px;height:18px}
+.uc-tx{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.uc-go{flex:none;font-weight:600;color:var(--lime)}
+@media(max-width:640px){.uc-tx{white-space:normal}.uc-go{display:none}}
 </style>
 </head>
 <body>
@@ -7950,6 +7971,110 @@ window.crearModuloTrabajos = function (G) {
 };
 </script>
 <script>
+/* ---- js/cambios.js ---- */
+/* REGISTRO DE CAMBIOS — Grupo MP
+   Quién modificó qué y cuándo: cambios hechos desde la app (usuario administrador) y ediciones
+   a mano en las planillas GESTION DE POZOS e Ingeniería GMP. Lo anota el Apps Script en la
+   pestaña REGISTRO_CAMBIOS. Solo lectura.
+   window.crearModuloCambios(G). */
+window.crearModuloCambios = function (G) {
+  'use strict';
+  const { html, useState, useMemo, Tile } = G;
+  const pad = (n) => String(n).padStart(2, '0');
+  const fechaDe = (iso) => { const d = new Date(iso); return isNaN(d) ? null : d; };
+  const fmtFH = (iso) => { const d = fechaDe(iso); return d ? `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}` : '—'; };
+  const hora = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  // "hace 5 min", "hoy 09:12", "ayer 17:40", "12/11 08:05"
+  const hace = (iso) => {
+    const d = fechaDe(iso); if (!d) return '';
+    const min = Math.round((Date.now() - d.getTime()) / 60000);
+    if (min < 1) return 'recién';
+    if (min < 60) return 'hace ' + min + ' min';
+    const h0 = new Date(); h0.setHours(0, 0, 0, 0);
+    if (d >= h0) return 'hoy ' + hora(d);
+    const ay = new Date(h0.getTime() - 86400000);
+    if (d >= ay) return 'ayer ' + hora(d);
+    return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}${d.getFullYear() !== new Date().getFullYear() ? '/' + d.getFullYear() : ''} ${hora(d)}`;
+  };
+  const dondeTxt = (c) => c.origen === 'Planilla' ? [c.planilla, c.hoja, c.rango].filter(Boolean).join(' › ') : 'App' + (c.modulo ? ' › ' + c.modulo : '');
+  const ChipO = ({ o }) => html`<span class=${'chip ' + (o === 'App' ? 'org-app' : 'org-pla')}>${o === 'App' ? 'App' : 'Planilla'}</span>`;
+
+  function UltimoT({ titulo, c, glow, vacio }) {
+    return html`<${Tile} c="s4" title=${titulo} glow=${glow}>
+      ${c ? html`<div class="cmb-quien">${c.usuario || 'Sin identificar'}</div>
+        <div class="cmb-cuando">${hace(c.fecha)} <span class="lbl">· ${fmtFH(c.fecha)}</span></div>
+        <div class="cmb-que"><b>${c.accion}</b>${c.detalle ? ' · ' + c.detalle : ''}</div>
+        <div class="lbl" style=${{ marginTop: 6 }}>${dondeTxt(c)}</div>`
+      : html`<div class="lbl" style=${{ marginTop: 6 }}>${vacio}</div>`}
+    <//>`;
+  }
+
+  function CambiosV({ data }) {
+    const C = data.cambios || [];
+    const [q, setQ] = useState('');
+    const [fo, setFo] = useState('');
+    const [fu, setFu] = useState('');
+    const [fm, setFm] = useState('');
+    const [fp, setFp] = useState('');
+    const [n, setN] = useState(100);
+    const usuarios = useMemo(() => Array.from(new Set(C.map((c) => c.usuario).filter(Boolean))).sort(), [C]);
+    const modulos = useMemo(() => Array.from(new Set(C.map((c) => c.modulo).filter(Boolean))).sort(), [C]);
+    const desde = fp ? Date.now() - Number(fp) * 86400000 : 0;
+    const list = C.filter((c) => (!fo || c.origen === fo) && (!fu || c.usuario === fu) && (!fm || c.modulo === fm)
+      && (!desde || (fechaDe(c.fecha) || 0) >= desde)
+      && (!q || (c.accion + ' ' + c.detalle + ' ' + c.hoja + ' ' + c.planilla + ' ' + c.usuario + ' ' + c.modulo).toLowerCase().includes(q.toLowerCase())));
+    const filtros = q || fo || fu || fm || fp;
+    const ultApp = C.find((c) => c.origen === 'App'), ultPla = C.find((c) => c.origen !== 'App');
+    const hoy0 = new Date(); hoy0.setHours(0, 0, 0, 0);
+    const nHoy = C.filter((c) => (fechaDe(c.fecha) || 0) >= hoy0).length;
+    const P = data.planillas || [];
+    return html`<div class="bento sec">
+      <${UltimoT} titulo="Último cambio" c=${C[0]} glow="var(--lime)" vacio="Todavía no hay cambios anotados. Se empiezan a registrar desde que corrés setup con el Code.gs nuevo."/>
+      <${UltimoT} titulo="Último cambio desde la app" c=${ultApp} glow="var(--aqua)" vacio="Sin cambios desde la app en el registro."/>
+      <${UltimoT} titulo="Última edición a mano en las planillas" c=${ultPla} glow="var(--amber)" vacio="Sin ediciones a mano en el registro."/>
+      ${P.length ? html`<${Tile} c="s12" cn="static" title="Última modificación de cada planilla (según Google Drive)" right=${html`<span class="chip plain mono">${nHoy} cambio${nHoy === 1 ? '' : 's'} hoy</span>`}>
+        <div class="cmb-plan">${P.map((p) => html`<a key=${p.id} class="cmb-pl" href=${p.url} target="_blank" rel="noopener">
+          <span class="lbl">${p.nombre || 'Planilla'}</span>
+          <b>${p.fecha ? hace(p.fecha) : '—'}</b>
+          <span class="lbl">${p.fecha ? fmtFH(p.fecha) : ''}${p.por ? ' · ' + p.por : ''}</span></a>`)}</div>
+        <div class="note" style=${{ marginTop: 8 }}>Incluye cualquier cambio en la planilla, también los de antes de instalar el registro y los de formato.</div>
+      <//>` : null}
+      <${Tile} c="s12" cn="static" title="Historial de cambios" right=${html`<span class="chip plain mono">${list.length} de ${C.length}</span>`}>
+        <div class="filters filters-c">
+          <input class="inp" placeholder="Buscar: código, hoja, acción, texto…" value=${q} onInput=${(e) => { setQ(e.target.value); setN(100); }}/>
+          <select class="inp" value=${fo} onChange=${(e) => setFo(e.target.value)}><option value="">Origen</option><option value="App">Desde la app</option><option value="Planilla">A mano en la planilla</option></select>
+          <select class="inp" value=${fu} onChange=${(e) => setFu(e.target.value)}><option value="">Quién</option>${usuarios.map((x) => html`<option key=${x}>${x}</option>`)}</select>
+          <select class="inp" value=${fm} onChange=${(e) => setFm(e.target.value)}><option value="">Módulo</option>${modulos.map((x) => html`<option key=${x}>${x}</option>`)}</select>
+          <select class="inp" value=${fp} onChange=${(e) => setFp(e.target.value)}><option value="">Período</option><option value="1">Últimas 24 h</option><option value="7">Últimos 7 días</option><option value="30">Últimos 30 días</option></select>
+          ${filtros ? html`<button class="btn btn-sm" onClick=${() => { setQ(''); setFo(''); setFu(''); setFm(''); setFp(''); }}>Limpiar</button>` : null}
+        </div>
+        <div class="tbl-wrap"><table class="tbl tbl-req tbl-cmb">
+          <thead><tr><th>Fecha y hora</th><th>Quién</th><th>Origen</th><th>Dónde</th><th>Qué cambió</th></tr></thead>
+          <tbody>${list.slice(0, n).map((c, i) => html`<tr key=${i + c.fecha}>
+            <td class="mono" style=${{ whiteSpace: 'nowrap' }}>${fmtFH(c.fecha)}<div class="lbl">${hace(c.fecha)}</div></td>
+            <td><b>${c.usuario || 'Sin identificar'}</b></td>
+            <td><${ChipO} o=${c.origen}/></td>
+            <td class="donde">${c.origen === 'App' ? c.modulo || '—' : html`${c.hoja || '—'}${c.rango ? html` <span class="mono lbl">${c.rango}</span>` : null}<div class="lbl">${c.planilla}${c.modulo && c.modulo !== 'Otra hoja' ? ' · ' + c.modulo : ''}</div>`}</td>
+            <td class="desc"><b>${c.accion}</b>${c.detalle ? html`<div class="cmb-det">${c.detalle}</div>` : null}</td>
+          </tr>`)}</tbody>
+        </table></div>
+        ${list.length > n ? html`<div class="row" style=${{ justifyContent: 'center', marginTop: 12 }}><button class="btn" onClick=${() => setN(n + 200)}>Mostrar más (${list.length - n} restantes)</button></div>` : null}
+        ${!list.length ? html`<div class="empty">${C.length ? 'No hay cambios con esos filtros.' : 'Todavía no hay cambios anotados.'}</div>` : null}
+      <//>
+    </div>`;
+  }
+
+  // Para el menú principal: el último cambio anotado.
+  const ultimo = (data) => {
+    const c = data && data.cambios && data.cambios[0];
+    return c ? { quien: c.usuario || 'Sin identificar', cuando: hace(c.fecha), fh: fmtFH(c.fecha), donde: dondeTxt(c), que: c.accion, origen: c.origen } : null;
+  };
+
+  return { CambiosV, ultimo, hace, fmtFH };
+};
+
+</script>
+<script>
 /* ---- js/app.js ---- */
 /* Dashboard de Pozos de Agua Profunda — Grupo MP
    React 18 + htm (sin compilar) · Recharts · Leaflet · jsPDF */
@@ -7989,6 +8114,7 @@ window.crearModuloTrabajos = function (G) {
     clip: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5 12.5 20a5.5 5.5 0 0 1-7.8-7.8l8.6-8.5a3.7 3.7 0 0 1 5.2 5.2l-8.5 8.5a1.8 1.8 0 0 1-2.6-2.6l7.8-7.8"/></svg>`,
     gen: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="2.5"/><path d="M7 6V3.5M17 6V3.5M12.6 9.2 10 13h4l-2.6 3.8M6 22v-3M18 22v-3"/></svg>`,
     pin: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 22s7-6.2 7-12a7 7 0 0 0-14 0c0 5.8 7 12 7 12z"/><circle cx="12" cy="10" r="2.6"/></svg>`,
+    history: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg>`,
     wrench: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.1L3.5 17.2a2 2 0 0 0 2.8 2.8l5.8-5.8a4 4 0 0 0 5.1-5.4l-2.6 2.6-2.4-.5-.5-2.4z"/></svg>`,
     factory: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21V10l5 3V10l5 3V5h4v16"/><path d="M17 9h4v12"/><path d="M2 21h20"/><path d="M7 17h2M12 17h2"/></svg>`,
     grid: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="7" height="7" rx="2"/><rect x="13.5" y="3.5" width="7" height="7" rx="2"/><rect x="3.5" y="13.5" width="7" height="7" rx="2"/><rect x="13.5" y="13.5" width="7" height="7" rx="2"/></svg>`,
@@ -8050,6 +8176,15 @@ window.crearModuloTrabajos = function (G) {
           const j = await (await fetch(u.toString())).json();
           if (!j.ok) throw new Error(j.error || 'No se pudieron leer los trabajos');
           if (!Array.isArray(j.proveedores)) throw new Error('el Apps Script publicado es una versión anterior (' + (j.version || 'sin versión') + ') y no lee los trabajos ni las OT');
+          return j;
+        },
+        async cambios() {
+          const u = new URL(CFG.API_URL);
+          u.searchParams.set('action', 'cambios');
+          if (CFG.TOKEN) u.searchParams.set('token', CFG.TOKEN);
+          const j = await (await fetch(u.toString())).json();
+          if (!j.ok) throw new Error(j.error || 'No se pudo leer el registro de cambios');
+          if (!Array.isArray(j.cambios)) throw new Error('el Apps Script publicado es una versión anterior (' + (j.version || 'sin versión') + ') y todavía no tiene el registro de cambios');
           return j;
         },
         subirOT: (session, d) => post(Object.assign({ action: 'subirOT', session }, d)),
@@ -8929,6 +9064,9 @@ window.crearModuloTrabajos = function (G) {
   const TRABAJOS_GIDS = ['1889260938', '532176875'];
   const TTABS = [{ id: 'resumen', n: '01', t: 'Resumen' }, { id: 'lista', n: '02', t: 'Trabajos y OT' }];
   const TR = window.crearModuloTrabajos ? window.crearModuloTrabajos(G) : null;
+  /* Registro de cambios: quién modificó qué y cuándo (lo anota el Apps Script en REGISTRO_CAMBIOS). */
+  const CB = window.crearModuloCambios ? window.crearModuloCambios(G) : null;
+  const CMTABS = [{ id: 'historial', n: '01', t: 'Historial' }];
   const pesoDe = (v) => { const t = String(v || '').replace(/[^\d,.\-]/g, ''); return t && /\d/.test(t) ? numDe(t) : null; };
   function trabajosDeCSV(gid) {
     return (txt) => {
@@ -8962,6 +9100,7 @@ window.crearModuloTrabajos = function (G) {
     { id: 'inicio', t: 'Menú principal', d: 'Pozos, bombas, grupos y frío', i: 'home' },
     { id: 'compras', t: 'Compras del área', d: 'Requerimientos y su estado', i: 'cart' },
     { id: 'produccion', t: 'Producción Cevil', d: 'Cerámica Marcos Paz · pallets por mes', i: 'factory' },
+    { id: 'cambios', t: 'Registro de cambios', d: 'Quién modificó qué y cuándo', i: 'history' },
     { id: 'energia', t: 'Tablero energético', d: 'Power BI · todo el grupo ↗', i: 'bolt', href: POWERBI_URL, cls: 'energia' }
   ].filter((x) => !('href' in x) || x.href);
   function Rail({ mod, go, badges }) {
@@ -9069,7 +9208,7 @@ window.crearModuloTrabajos = function (G) {
     </button>`;
   }
 
-  function Home({ wells, est, data, bombas, mants, grupos, mantsG, frio, mantsF, trab, goMod, openWell, openB }) {
+  function Home({ wells, est, data, bombas, mants, grupos, mantsG, frio, mantsF, trab, ult, goMod, openWell, openB }) {
     const tr = TR && trab ? TR.resumenHome(trab) : null;
     const fOp = frio.filter((g) => g.estado === 'Operativa').length;
     const fFs = frio.filter((g) => g.estado === 'Fuera de servicio').length;
@@ -9086,6 +9225,11 @@ window.crearModuloTrabajos = function (G) {
     const enProc = mants.filter((m) => m.trabajo === 'En proceso').length;
     const pc = (a, n) => (n ? Math.round((a / n) * 100) : 0);
     return html`<div class="bento sec">
+      ${ult ? html`<button class="ult-cambio s12" onClick=${() => goMod('cambios')} title="Ver el registro de cambios">
+        <span class="uc-ic">${I.history}</span>
+        <span class="uc-tx"><span class="lbl">Último cambio</span> <b>${ult.quien}</b> · ${ult.cuando} · ${ult.que} <span class="lbl">(${ult.donde})</span></span>
+        <span class="uc-go">Ver registro →</span>
+      </button>` : null}
       <${ModCard} c=${c} icon=${I.drop} title=${html`Pozos de agua <span class="grad">profunda</span>`} glow="var(--aqua)"
         desc="Estado de cada pozo, niveles y caudal, función, trazabilidad, mapa satelital e informe."
         stats=${[['Pozos', wells.length], ['Operativos', wOp, 'var(--ok)'], ['Fuera de servicio', wFs, 'var(--bad)']]} pct=${pc(wOp, wells.length)}
@@ -9123,6 +9267,7 @@ window.crearModuloTrabajos = function (G) {
     if (m === 'bombas' && B) return { mod: 'bombas', tab: 'resumen', btab: BTABS.some((x) => x.id === t) ? t : 'resumen' };
     if (m === 'grupos' && GR) return { mod: 'grupos', tab: 'resumen', btab: 'resumen', gtab: GTABS.some((x) => x.id === t) ? t : 'resumen' };
     if (m === 'trabajos' && TR) return { mod: 'trabajos', tab: 'resumen', btab: 'resumen', ttab: TTABS.some((x) => x.id === t) ? t : 'resumen' };
+    if (m === 'cambios' && CB) return { mod: 'cambios', tab: 'resumen', btab: 'resumen' };
     if (m === 'produccion' && P) return { mod: 'produccion', tab: 'resumen', btab: 'resumen', ptab: PTABS.some((x) => x.id === t) ? t : 'evolucion' };
     if (m === 'compras' && C) return { mod: 'compras', tab: 'resumen', btab: 'resumen', ctab: CTABS.some((x) => x.id === t) ? t : 'resumen' };
     if (m === 'frio' && F) return { mod: 'frio', tab: 'resumen', btab: 'resumen', ftab: FTABS.some((x) => x.id === t) ? t : 'resumen' };
@@ -9160,6 +9305,8 @@ window.crearModuloTrabajos = function (G) {
     const [filtroT, setFiltroT] = useState(null);
     const [trab, setTrab] = useState(() => { const c = lsGet('pozos-gmp-trabajos'); return c && Array.isArray(c.proveedores) ? Object.assign({ src: 'cache' }, c) : { proveedores: window.TRABAJOS_BASE ? window.TRABAJOS_BASE.proveedores : [], ots: [], al: window.TRABAJOS_BASE ? window.TRABAJOS_BASE.al : '', src: 'copia' }; });
     const trabPedido = useRef(false);
+    const [cmb, setCmb] = useState(() => { const c = lsGet('pozos-gmp-cambios'); return c && Array.isArray(c.cambios) ? Object.assign({ src: 'cache' }, c) : { cambios: [], planillas: [], src: '' }; });
+    const cmbPedido = useRef(0);
     const [prod, setProd] = useState(() => { const c = lsGet('pozos-gmp-produccion'); return c && Array.isArray(c.rows) ? Object.assign({ src: 'cache' }, c) : { rows: window.PRODUCCION_BASE ? window.PRODUCCION_BASE.rows : [], al: window.PRODUCCION_BASE ? window.PRODUCCION_BASE.al : '', src: 'copia' }; });
     const prodPedida = useRef(false);
     const [compras, setCompras] = useState(() => { const c = lsGet('pozos-gmp-compras'); return c && Array.isArray(c.rows) ? Object.assign({ src: 'cache' }, c) : { rows: window.COMPRAS_BASE ? window.COMPRAS_BASE.rows : [], al: window.COMPRAS_BASE ? window.COMPRAS_BASE.al : '', src: 'copia' }; });
@@ -9305,10 +9452,25 @@ window.crearModuloTrabajos = function (G) {
     useEffect(() => { if (loaded && store.mode === 'local') lsSet(LS_DATA, { pozos: data, bombas: rawB.bombas, mants: rawB.mants, grupos: rawG.bombas, mantsG: rawG.mants, frio: rawF.bombas, mantsF: rawF.mants, planosF: rawF.planos, ubicF: rawF.ubic }); }, [data, rawB, rawG, rawF, loaded]);
     useEffect(() => { U.loadLogo().then((l) => l && setLogoUrl(l.url)); }, []);
     useEffect(() => {
-      const h = mod === 'inicio' ? '#inicio' : '#' + mod + '/' + (mod === 'pozos' ? tab : mod === 'grupos' ? gtab : mod === 'frio' ? ftab : mod === 'compras' ? ctab : mod === 'produccion' ? ptab : mod === 'trabajos' ? ttab : btab);
+      const h = mod === 'inicio' ? '#inicio' : '#' + mod + '/' + (mod === 'pozos' ? tab : mod === 'grupos' ? gtab : mod === 'frio' ? ftab : mod === 'compras' ? ctab : mod === 'produccion' ? ptab : mod === 'trabajos' ? ttab : mod === 'cambios' ? 'historial' : btab);
       if (location.hash !== h) history.replaceState(null, '', h);
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }, [mod, tab, btab, gtab, ftab, ctab, ptab, ttab]);
+    // Registro de cambios: solo desde el Apps Script.
+    const cargarCambios = useCallback(async (aviso) => {
+      if (store.mode !== 'sheets') { setCmb((c) => Object.assign({}, c, { error: 'la página no está conectada al Apps Script' })); return; }
+      setCmb((c) => Object.assign({}, c, { cargando: true }));
+      try {
+        const j = await store.cambios();
+        const c = { cambios: j.cambios, planillas: j.planillas || [], registroInstalado: j.registroInstalado, al: new Date().toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' }) };
+        lsSet('pozos-gmp-cambios', Object.assign({}, c, { cambios: j.cambios.slice(0, 300) }));
+        setCmb(Object.assign({ src: 'vivo', error: '' }, c));
+        if (aviso) toast('Registro de cambios actualizado.');
+      } catch (err) {
+        console.error(err);
+        setCmb((c) => Object.assign({}, c, { cargando: false, error: String(err.message || err) }));
+      }
+    }, []);
     // Trabajos: primero el Apps Script (trae también las OT adjuntas); si no responde, las hojas publicadas.
     const cargarTrab = useCallback(async (aviso) => {
       setTrab((c) => Object.assign({}, c, { cargando: true }));
@@ -9371,6 +9533,7 @@ window.crearModuloTrabajos = function (G) {
       if (mod === 'compras' && !comprasPedidas.current) { comprasPedidas.current = true; cargarCompras(); }
       if (mod === 'produccion' && !prodPedida.current) { prodPedida.current = true; cargarProd(); }
       if ((mod === 'trabajos' || mod === 'inicio') && !trabPedido.current) { trabPedido.current = true; cargarTrab(); }
+      if ((mod === 'cambios' || mod === 'inicio') && CB && Date.now() - cmbPedido.current > 15000) { cmbPedido.current = Date.now(); cargarCambios(); }
     }, [mod]);
 
     const authFail = (err) => {
@@ -9467,9 +9630,9 @@ window.crearModuloTrabajos = function (G) {
     const onLogin = (s) => { lsSet(LS_ADMIN, s); setAdmin(s); setShowLogin(false); toast('Hola, ' + s.user + '. Ya podés cargar y modificar datos.'); };
     const logout = () => { borrarSesion(); setAdmin(null); toast('Sesión cerrada. Quedaste en modo lectura.'); };
 
-    const tabs = mod === 'bombas' ? BTABS : mod === 'grupos' ? GTABS : mod === 'frio' ? FTABS : mod === 'compras' ? CTABS : mod === 'produccion' ? PTABS : mod === 'trabajos' ? TTABS : TABS;
-    const curTab = mod === 'bombas' ? btab : mod === 'grupos' ? gtab : mod === 'frio' ? ftab : mod === 'compras' ? ctab : mod === 'produccion' ? ptab : mod === 'trabajos' ? ttab : tab;
-    const setCur = mod === 'bombas' ? setBtab : mod === 'grupos' ? setGtab : mod === 'frio' ? setFtab : mod === 'compras' ? setCtab : mod === 'produccion' ? setPtab : mod === 'trabajos' ? setTtab : setTab;
+    const tabs = mod === 'bombas' ? BTABS : mod === 'grupos' ? GTABS : mod === 'frio' ? FTABS : mod === 'compras' ? CTABS : mod === 'produccion' ? PTABS : mod === 'trabajos' ? TTABS : mod === 'cambios' ? CMTABS : TABS;
+    const curTab = mod === 'bombas' ? btab : mod === 'grupos' ? gtab : mod === 'frio' ? ftab : mod === 'compras' ? ctab : mod === 'produccion' ? ptab : mod === 'trabajos' ? ttab : mod === 'cambios' ? 'historial' : tab;
+    const setCur = mod === 'bombas' ? setBtab : mod === 'grupos' ? setGtab : mod === 'frio' ? setFtab : mod === 'compras' ? setCtab : mod === 'produccion' ? setPtab : mod === 'trabajos' ? setTtab : mod === 'cambios' ? (() => {}) : setTab;
     const step = (d) => { const i = tabs.findIndex((t) => t.id === curTab); setCur(tabs[(i + d + tabs.length) % tabs.length].id); };
     useEffect(() => {
       const f = (ev) => {
@@ -9564,10 +9727,12 @@ window.crearModuloTrabajos = function (G) {
       : mod === 'compras' ? html`Compras del <span class="grad">área</span>`
       : mod === 'produccion' ? html`Producción · <span class="grad">Planta Cevil</span>`
       : mod === 'trabajos' ? html`Trabajos <span class="grad">electromecánicos</span>`
+      : mod === 'cambios' ? html`Registro de <span class="grad">cambios</span>`
       : html`Área de <span class="grad">Ingeniería Industrial</span>`;
     const sub = mod === 'pozos' ? html`${wells.length} pozos de <a href=${sheetUrl} target="_blank" rel="noopener">${sheetName} › POZOS DE AGUA</a>${vivo}`
       : mod === 'grupos' ? html`${grupos.length} grupos de <a href=${sheetUrl} target="_blank" rel="noopener">${sheetName} › Registro GRUPO</a>${gSrc === 'vivo' ? ' · en vivo' : gSrc === 'local' ? '' : ' · copia del 16/11/2026'}`
       : mod === 'trabajos' ? html`Proveedores externos · ${(trab.proveedores || []).map((p) => p.nombre).join(' y ')} · <a href=${'https://docs.google.com/spreadsheets/d/' + COMPRAS_ID + '/edit#gid=' + TRABAJOS_GIDS[0]} target="_blank" rel="noopener">Ingeniería GMP</a>${trab.cargando ? ' · actualizando…' : trab.src === 'vivo' ? ' · en vivo' : trab.al ? ' · copia del ' + trab.al : ''}`
+      : mod === 'cambios' ? html`Quién modificó qué y cuándo · desde la app y a mano en ${(cmb.planillas || []).length ? (cmb.planillas || []).map((x, i) => html`${i ? ' e ' : ''}<a key=${x.id} href=${x.url} target="_blank" rel="noopener">${x.nombre || 'planilla'}</a>`) : 'las planillas'}${cmb.cargando ? ' · actualizando…' : cmb.src === 'vivo' ? ' · actualizado ' + cmb.al : cmb.al ? ' · copia del ' + cmb.al : ''}`
       : mod === 'produccion' ? html`Cerámica Marcos Paz · ${(prod.rows || []).length} meses de <a href=${'https://docs.google.com/spreadsheets/d/' + COMPRAS_ID + '/edit#gid=' + PROD_GID} target="_blank" rel="noopener">Ingeniería GMP › Historico Produccion</a>${prod.cargando ? ' · actualizando…' : prod.src === 'vivo' ? ' · en vivo' : prod.al ? ' · copia del ' + prod.al : ''} · solo lectura`
       : mod === 'compras' ? html`${(compras.rows || []).length} requerimientos de <a href=${compras.url || COMPRAS_URL} target="_blank" rel="noopener">${compras.nombre || 'Ingeniería GMP'} › ${compras.hoja || 'Requerimientos de compras'}</a>${compras.cargando ? ' · actualizando…' : compras.src === 'vivo' ? ' · en vivo' : compras.al ? ' · copia del ' + compras.al : ''} · solo lectura`
       : mod === 'frio' ? html`${frio.length} equipos de <a href=${sheetUrl} target="_blank" rel="noopener">${sheetName} › Registro AA</a>${fSrc === 'vivo' ? ' · en vivo' : fSrc === 'local' ? '' : ' · copia del 17/11/2026'}`
@@ -9593,6 +9758,7 @@ window.crearModuloTrabajos = function (G) {
           </div>
           ${mod === 'compras' ? html`<button class="btn" disabled=${compras.cargando} onClick=${() => cargarCompras(true)}>${compras.cargando ? 'Actualizando…' : '↻ Actualizar'}</button>` : null}
           ${mod === 'trabajos' ? html`<button class="btn" disabled=${trab.cargando} onClick=${() => cargarTrab(true)}>${trab.cargando ? 'Actualizando…' : '↻ Actualizar'}</button>` : null}
+          ${mod === 'cambios' ? html`<button class="btn" disabled=${cmb.cargando} onClick=${() => cargarCambios(true)}>${cmb.cargando ? 'Actualizando…' : '↻ Actualizar'}</button>` : null}
           ${mod === 'produccion' ? html`<button class="btn" disabled=${prod.cargando} onClick=${() => cargarProd(true)}>${prod.cargando ? 'Actualizando…' : '↻ Actualizar'}</button>` : null}
           ${mod !== 'inicio' ? html`<div class="navbtns"><button class="btn" onClick=${() => step(-1)}>← Anterior</button><button class="btn" onClick=${() => step(1)}>Siguiente →</button></div>` : null}
           ${store.mode === 'sheets' ? (admin
@@ -9603,7 +9769,7 @@ window.crearModuloTrabajos = function (G) {
 
       ${mod !== 'inicio' ? html`<nav class="tabs" role="tablist">
         <button class="tab tab-home" onClick=${() => setMod('inicio')} title="Volver al menú principal">${I.home}<span>Menú</span></button>
-        ${MODS.filter((x) => x.id !== mod && mod !== 'compras' && mod !== 'produccion').map((x) => html`<button key=${x.id} class="tab tab-switch" onClick=${() => setMod(x.id)} title=${'Ir a ' + x.t}>${I[x.i]}<span>${x.t}</span></button>`)}
+        ${MODS.filter((x) => x.id !== mod && mod !== 'compras' && mod !== 'produccion' && mod !== 'cambios').map((x) => html`<button key=${x.id} class="tab tab-switch" onClick=${() => setMod(x.id)} title=${'Ir a ' + x.t}>${I[x.i]}<span>${x.t}</span></button>`)}
         <span class="tab-sep"></span>
         ${tabs.map((t) => html`<button key=${t.id} role="tab" aria-selected=${t.id === curTab} class=${'tab' + (t.id === curTab ? ' on' : '')} onClick=${() => setCur(t.id)}><span class="n">${t.n}</span>${t.t}</button>`)}
       </nav>` : null}
@@ -9612,7 +9778,7 @@ window.crearModuloTrabajos = function (G) {
       <main key=${mod + '/' + curTab}>
         ${mod === 'compras' && compras.error ? html`<div class="aviso-err"><b>No se pudo leer la planilla de compras:</b> ${compras.error}. Se muestra la última copia guardada (${compras.al || 'sin fecha'}).
           <button class="btn btn-sm" onClick=${() => cargarCompras(true)}>Reintentar</button></div>` : null}
-        ${mod === 'inicio' ? html`<${Home} wells=${wells} est=${est} data=${data} bombas=${bombas} mants=${mants} grupos=${grupos} mantsG=${mantsG} frio=${frio} mantsF=${mantsF} trab=${trab} goMod=${setMod} openWell=${openWell} openB=${openB}/>` : null}
+        ${mod === 'inicio' ? html`<${Home} wells=${wells} est=${est} data=${data} bombas=${bombas} mants=${mants} grupos=${grupos} mantsG=${mantsG} frio=${frio} mantsF=${mantsF} trab=${trab} ult=${CB ? CB.ultimo(cmb) : null} goMod=${setMod} openWell=${openWell} openB=${openB}/>` : null}
         ${mod === 'pozos' && tab === 'resumen' ? html`<${Resumen} wells=${wells} data=${data} est=${est} openWell=${openWell} pal=${pal}/>` : null}
         ${mod === 'pozos' && tab === 'ficha' ? html`<${Ficha} canEdit=${canEdit} wells=${wells} sel=${selW} setSel=${setSel} data=${data} est=${est} mutate=${mutate} pal=${pal} onPdf=${onPdf} toast=${toast} bombaDe=${bombaDe} goBomba=${openB}/>` : null}
         ${mod === 'pozos' && tab === 'mapa' ? html`<${Mapa} wells=${wells} sel=${selW} setSel=${setSel} est=${est} goFicha=${openWell} pal=${pal}/>` : null}
@@ -9626,6 +9792,8 @@ window.crearModuloTrabajos = function (G) {
           Para leer las OT adjuntas hay que publicar el Code.gs nuevo. <button class="btn btn-sm" onClick=${() => cargarTrab(true)}>Reintentar</button></div>` : null}
         ${mod === 'trabajos' && ttab === 'resumen' ? html`<${TR.ResumenT} data=${trab} pal=${pal} verLista=${(f) => { setFiltroT(f); setTtab('lista'); }}/>` : null}
         ${mod === 'trabajos' && ttab === 'lista' ? html`<${TR.ListaT} data=${trab} filtro=${filtroT} canEdit=${canEdit} conectado=${store.mode === 'sheets'} subirOT=${subirOT} quitarOT=${quitarOT} toast=${toast}/>` : null}
+        ${mod === 'cambios' && cmb.error ? html`<div class="aviso-err"><b>No se pudo leer el registro de cambios:</b> ${cmb.error}.${cmb.cambios && cmb.cambios.length ? ' Se muestra la última copia guardada.' : ''} Para tenerlo hay que pegar el Code.gs nuevo, correr setup y publicar una nueva versión. <button class="btn btn-sm" onClick=${() => cargarCambios(true)}>Reintentar</button></div>` : null}
+        ${mod === 'cambios' && CB ? html`<${CB.CambiosV} data=${cmb}/>` : null}
         ${mod === 'produccion' && prod.error ? html`<div class="aviso-err"><b>No se pudo leer la hoja de producción:</b> ${prod.error}. Se muestra la última copia guardada (${prod.al || 'sin fecha'}).
           Revisá que la pestaña “Historico Produccion” también esté publicada en la web. <button class="btn btn-sm" onClick=${() => cargarProd(true)}>Reintentar</button></div>` : null}
         ${mod === 'produccion' && ptab === 'evolucion' ? html`<${P.EvolucionP} rows=${prod.rows || []} pal=${pal}/>` : null}
@@ -9655,6 +9823,7 @@ window.crearModuloTrabajos = function (G) {
           : mod === 'compras' ? 'Solo lectura · los pedidos se cargan y editan en la hoja Requerimientos de compras'
           : mod === 'trabajos' ? 'Los trabajos se cargan en las hojas de cada proveedor · las OT se adjuntan desde acá'
           : mod === 'produccion' ? 'Solo lectura · los datos se cargan en la hoja Historico Produccion (tabla Cevil)'
+          : mod === 'cambios' ? 'Solo lectura · el registro completo está en la pestaña REGISTRO_CAMBIOS de la planilla de la app'
           : mod === 'grupos' ? 'UNIDAD-SECTOR-(F fijo · M móvil)-kVA-MOTOR-GENERADOR-N°'
           : mod === 'bombas' ? 'FINCA-SECTOR-TIPO-INSTALACIÓN-HP · BP pozo · BH antiheladas · BR riego · BF fertirriego · BB booster · S sumergida · C centrífuga'
           : mod === 'pozos' ? 'FINCA-SECTOR-BP-INSTALACIÓN-HP · BP = bomba de pozo · S = sumergida' : 'Grupo MP · Ingeniería Industrial'}</span>
