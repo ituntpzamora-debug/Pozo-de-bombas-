@@ -8201,6 +8201,7 @@ window.crearModuloCambios = function (G) {
     clip: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5 12.5 20a5.5 5.5 0 0 1-7.8-7.8l8.6-8.5a3.7 3.7 0 0 1 5.2 5.2l-8.5 8.5a1.8 1.8 0 0 1-2.6-2.6l7.8-7.8"/></svg>`,
     gen: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="2.5"/><path d="M7 6V3.5M17 6V3.5M12.6 9.2 10 13h4l-2.6 3.8M6 22v-3M18 22v-3"/></svg>`,
     pin: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 22s7-6.2 7-12a7 7 0 0 0-14 0c0 5.8 7 12 7 12z"/><circle cx="12" cy="10" r="2.6"/></svg>`,
+    truck: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.62L18.3 8.38A1 1 0 0 0 17.52 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/></svg>`,
     bell: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>`,
     history: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg>`,
     wrench: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.1L3.5 17.2a2 2 0 0 0 2.8 2.8l5.8-5.8a4 4 0 0 0 5.1-5.4l-2.6 2.6-2.4-.5-.5-2.4z"/></svg>`,
@@ -9152,6 +9153,45 @@ window.crearModuloCambios = function (G) {
   const TRABAJOS_GIDS = ['1889260938', '532176875'];
   const TTABS = [{ id: 'resumen', n: '01', t: 'Resumen' }, { id: 'lista', n: '02', t: 'Trabajos y OT' }];
   const TR = window.crearModuloTrabajos ? window.crearModuloTrabajos(G) : null;
+  /* Mantenimiento vehicular: la tarjeta solo muestra la disponibilidad y abre el sistema RODADOS
+     (no se toca). Lee la hoja DISPONIBILIDAD igual que RODADOS: EN RELEVAMIENTO no cuenta;
+     MANTENIMIENTO o FUERA = fuera de uso; ALERTA = en alerta (sigue disponible). */
+  const RODADOS_URL = CFG.RODADOS_URL || 'https://matiasromero114.github.io/rodados-dashboard/';
+  const RODADOS_SHEET = CFG.RODADOS_SHEET || '1QRqhWjayjGiTl0OXDHZNSzpJz4Oa-fXHZq0FFewmx-s';
+  const RODADOS_GID = CFG.RODADOS_GID || '1062321742';
+  async function rodadosEnVivo() {
+    const base = 'https://docs.google.com/spreadsheets/d/' + RODADOS_SHEET;
+    const urls = [base + '/export?format=csv&gid=' + RODADOS_GID, base + '/gviz/tq?tqx=out:csv&gid=' + RODADOS_GID];
+    let ultimo;
+    for (const u of urls) {
+      try {
+        const r = await fetch(u + '&_=' + Date.now());
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const t = await r.text();
+        if (/^\s*</.test(t)) throw new Error('la hoja no es pública');
+        const rows = parseCSV(t);
+        let h = rows.findIndex((r) => r.some((c) => /^UNIDAD$/i.test(String(c || '').trim())));
+        if (h < 0) throw new Error('no encontré la columna UNIDAD');
+        const H = rows[h].map((x) => String(x || '').toUpperCase().trim());
+        const col = (n, d) => { const i = H.indexOf(n); return i >= 0 ? i : d; };
+        const iU = col('UNIDAD', 0), iS = col('SECTOR', 2), iE = col('ESTADO', 3);
+        let total = 0, fuera = 0, alerta = 0;
+        for (let i = h + 1; i < rows.length; i++) {
+          const r = rows[i], un = String(r[iU] || '').trim();
+          if (!un || /^UNIDAD$/i.test(un) || !String(r[iS] || '').trim()) continue;
+          const e = String(r[iE] || '').toUpperCase();
+          if (e.includes('RELEV')) continue;
+          total++;
+          if (e.includes('MANTENIMIENTO') || e.includes('FUERA')) fuera++;
+          else if (e.includes('ALERTA')) alerta++;
+        }
+        if (!total) throw new Error('la hoja no tiene unidades');
+        const oper = total - fuera;
+        return { total, oper, fuera, alerta, pct: Math.round((oper / total) * 100), al: new Date().toISOString() };
+      } catch (e) { ultimo = e; }
+    }
+    throw ultimo;
+  }
   /* Registro de cambios: quién modificó qué y cuándo (lo anota el Apps Script en REGISTRO_CAMBIOS). */
   const CB = window.crearModuloCambios ? window.crearModuloCambios(G) : null;
   const CMTABS = [{ id: 'historial', n: '01', t: 'Historial' }];
@@ -9278,12 +9318,12 @@ window.crearModuloCambios = function (G) {
     return out;
   }
 
-  function ModCard({ icon, title, desc, stats, pct, extra, onClick, glow, c }) {
+  function ModCard({ icon, title, desc, stats, pct, extra, onClick, glow, c, go }) {
     return html`<button class=${'tile mod-card ' + (c || 's6')} onClick=${onClick}>
       <div class="glow" style=${{ '--gc': glow }}></div>
       <div class="row between" style=${{ alignItems: 'flex-start' }}>
         <span class="mod-ico">${icon}</span>
-        <span class="mod-go">Entrar →</span>
+        <span class="mod-go">${go || 'Entrar →'}</span>
       </div>
       <h2 class="mod-t">${title}</h2>
       <p class="muted" style=${{ margin: '0 0 16px' }}>${desc}</p>
@@ -9296,7 +9336,7 @@ window.crearModuloCambios = function (G) {
     </button>`;
   }
 
-  function Home({ wells, est, data, bombas, mants, grupos, mantsG, frio, mantsF, trab, ult, goMod, openWell, openB }) {
+  function Home({ wells, est, data, bombas, mants, grupos, mantsG, frio, mantsF, trab, rod, goMod, openWell, openB }) {
     const tr = TR && trab ? TR.resumenHome(trab) : null;
     const fOp = frio.filter((g) => g.estado === 'Operativa').length;
     const fFs = frio.filter((g) => g.estado === 'Fuera de servicio').length;
@@ -9338,6 +9378,18 @@ window.crearModuloCambios = function (G) {
         stats=${[['Trabajos', tr.n], ['En curso', tr.curso, 'var(--amber)'], ['Costo ' + U.hoy().slice(0, 4), tr.pesosK(tr.costo)]]} pct=${null}
         extra=${html`<span class="row" style=${{ gap: 6 }}>${tr.provs.map(([p, r, n]) => html`<span key=${p} class=${'chip prov-' + (r === 'Eléctrico' ? 'el' : r === 'Mecánico' ? 'me' : 'ot')}>${p} · ${r.toLowerCase()} · ${n}</span>`)}</span>`}
         onClick=${() => goMod('trabajos')}/>` : null}
+      <${ModCard} c=${c} icon=${I.truck} title=${html`Mantenimiento <span class="grad">vehicular</span>`} glow="var(--amber)" go="Abrir RODADOS ↗"
+        desc="Flota industrial (palas, camiones, autoelevadores, topadora) y flota agrícola. Se abre el sistema RODADOS."
+        stats=${rod && rod.total ? [['Unidades', rod.total], ['Disponibles', rod.oper, 'var(--ok)'], ['Fuera de uso', rod.fuera, 'var(--bad)']] : [['Unidades', '—'], ['Disponibles', '—'], ['Fuera de uso', '—']]}
+        pct=${rod && rod.total ? rod.pct : null}
+        extra=${html`<span class="row" style=${{ gap: 6 }}>
+          ${rod && rod.total ? html`<span class="chip plain">Industrial · ${rod.pct}% · ${rod.oper}/${rod.total}</span>` : null}
+          ${rod && rod.alerta ? html`<span class="chip warn"><i></i>${rod.alerta} en alerta</span>` : null}
+          <span class="chip plain">Agrícola · en preparación</span>
+          ${rod && rod.cargando && !rod.total ? html`<span class="chip plain">Leyendo disponibilidad…</span>` : null}
+          ${rod && rod.error && !rod.total ? html`<span class="chip warn"><i></i>No se pudo leer la disponibilidad</span>` : null}
+        </span>`}
+        onClick=${() => window.open(RODADOS_URL, '_blank', 'noopener')}/>
     </div>`;
   }
 
@@ -9390,6 +9442,8 @@ window.crearModuloCambios = function (G) {
     const trabPedido = useRef(false);
     const [cmb, setCmb] = useState(() => { const c = lsGet('pozos-gmp-cambios'); return c && Array.isArray(c.cambios) ? Object.assign({ src: 'cache' }, c) : { cambios: [], planillas: [], src: '' }; });
     const cmbPedido = useRef(0);
+    const [rod, setRod] = useState(() => lsGet('pozos-gmp-rodados') || null);
+    const rodPedido = useRef(0);
     const [prod, setProd] = useState(() => { const c = lsGet('pozos-gmp-produccion'); return c && Array.isArray(c.rows) ? Object.assign({ src: 'cache' }, c) : { rows: window.PRODUCCION_BASE ? window.PRODUCCION_BASE.rows : [], al: window.PRODUCCION_BASE ? window.PRODUCCION_BASE.al : '', src: 'copia' }; });
     const prodPedida = useRef(false);
     const [compras, setCompras] = useState(() => { const c = lsGet('pozos-gmp-compras'); return c && Array.isArray(c.rows) ? Object.assign({ src: 'cache' }, c) : { rows: window.COMPRAS_BASE ? window.COMPRAS_BASE.rows : [], al: window.COMPRAS_BASE ? window.COMPRAS_BASE.al : '', src: 'copia' }; });
@@ -9622,6 +9676,12 @@ window.crearModuloCambios = function (G) {
       if (mod === 'compras' && !comprasPedidas.current) { comprasPedidas.current = true; cargarCompras(); }
       if (mod === 'produccion' && !prodPedida.current) { prodPedida.current = true; cargarProd(); }
       if ((mod === 'trabajos' || mod === 'inicio') && !trabPedido.current) { trabPedido.current = true; cargarTrab(); }
+      if (mod === 'inicio' && Date.now() - rodPedido.current > 300000) {
+        rodPedido.current = Date.now();
+        setRod((r) => Object.assign({}, r || {}, { cargando: true }));
+        rodadosEnVivo().then((r) => { lsSet('pozos-gmp-rodados', r); setRod(r); })
+          .catch((e) => { console.warn('RODADOS:', e); setRod((r) => Object.assign({}, r || {}, { cargando: false, error: String(e.message || e) })); });
+      }
       if (CB && Date.now() - cmbPedido.current > 15000) { cmbPedido.current = Date.now(); cargarCambios(); }
     }, [mod]);
 
@@ -9868,7 +9928,7 @@ window.crearModuloCambios = function (G) {
       <main key=${mod + '/' + curTab}>
         ${mod === 'compras' && compras.error ? html`<div class="aviso-err"><b>No se pudo leer la planilla de compras:</b> ${compras.error}. Se muestra la última copia guardada (${compras.al || 'sin fecha'}).
           <button class="btn btn-sm" onClick=${() => cargarCompras(true)}>Reintentar</button></div>` : null}
-        ${mod === 'inicio' ? html`<${Home} wells=${wells} est=${est} data=${data} bombas=${bombas} mants=${mants} grupos=${grupos} mantsG=${mantsG} frio=${frio} mantsF=${mantsF} trab=${trab} goMod=${setMod} openWell=${openWell} openB=${openB}/>` : null}
+        ${mod === 'inicio' ? html`<${Home} wells=${wells} est=${est} data=${data} bombas=${bombas} mants=${mants} grupos=${grupos} mantsG=${mantsG} frio=${frio} mantsF=${mantsF} trab=${trab} rod=${rod} goMod=${setMod} openWell=${openWell} openB=${openB}/>` : null}
         ${mod === 'pozos' && tab === 'resumen' ? html`<${Resumen} wells=${wells} data=${data} est=${est} openWell=${openWell} pal=${pal}/>` : null}
         ${mod === 'pozos' && tab === 'ficha' ? html`<${Ficha} canEdit=${canEdit} wells=${wells} sel=${selW} setSel=${setSel} data=${data} est=${est} mutate=${mutate} pal=${pal} onPdf=${onPdf} toast=${toast} bombaDe=${bombaDe} goBomba=${openB}/>` : null}
         ${mod === 'pozos' && tab === 'mapa' ? html`<${Mapa} wells=${wells} sel=${selW} setSel=${setSel} est=${est} goFicha=${openWell} pal=${pal}/>` : null}
