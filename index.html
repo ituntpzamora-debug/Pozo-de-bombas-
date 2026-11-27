@@ -566,6 +566,29 @@ a.rail-item{text-decoration:none}
 .uc-tx{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .uc-go{flex:none;font-weight:600;color:var(--lime)}
 @media(max-width:640px){.uc-tx{white-space:normal}.uc-go{display:none}}
+/* Campana de notificaciones */
+.notif{position:relative;display:inline-flex}
+.notif-btn{position:relative;display:grid;place-items:center;width:42px;height:42px;border-radius:14px;border:1px solid var(--stroke);background:linear-gradient(160deg,var(--glass2),var(--glass));color:inherit;cursor:pointer}
+.notif-btn svg{width:20px;height:20px}
+.notif-btn:hover{border-color:var(--lime)}
+.notif-btn.hay svg{color:var(--lime);animation:campana 2.4s ease-in-out infinite;transform-origin:50% 10%}
+@keyframes campana{0%,82%,100%{transform:rotate(0)}86%{transform:rotate(14deg)}90%{transform:rotate(-12deg)}94%{transform:rotate(7deg)}97%{transform:rotate(-4deg)}}
+@media (prefers-reduced-motion:reduce){.notif-btn.hay svg{animation:none}}
+.notif-n{position:absolute;top:-6px;right:-6px;min-width:20px;height:20px;padding:0 5px;border-radius:10px;background:#e5484d;color:#fff;font-size:11px;font-weight:700;line-height:20px;text-align:center;box-shadow:0 0 0 2px var(--bg,#0b0f12)}
+.modal.notif-pop{width:min(520px,100%);padding:20px;display:flex;flex-direction:column;max-height:min(720px,88vh)}
+.notif-hd{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+.notif-hd .modal-ico{margin:0;flex:none}
+.notif-list{overflow:auto;margin:0 -8px;padding:0 8px;flex:1;min-height:0}
+.notif-it{display:flex;gap:12px;padding:12px 10px;border-radius:12px;border-bottom:1px solid var(--stroke)}
+.notif-it:last-child{border-bottom:0}
+.notif-it.nuevo{background:color-mix(in srgb,var(--lime) 9%,transparent)}
+.notif-dot{flex:none;width:9px;height:9px;border-radius:50%;margin-top:6px}
+.notif-dot.app{background:var(--aqua)}.notif-dot.pla{background:var(--amber)}
+.notif-it:not(.nuevo) .notif-dot{opacity:.45}
+.notif-l2{margin-top:2px;line-height:1.4;overflow-wrap:anywhere}
+.notif-det{color:var(--muted)}
+.notif-ft{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid var(--stroke)}
+.notif-ver{color:var(--lime)}
 </style>
 </head>
 <body>
@@ -7979,7 +8002,7 @@ window.crearModuloTrabajos = function (G) {
    window.crearModuloCambios(G). */
 window.crearModuloCambios = function (G) {
   'use strict';
-  const { html, useState, useMemo, Tile } = G;
+  const { html, useState, useMemo, useEffect, Tile, I } = G;
   const pad = (n) => String(n).padStart(2, '0');
   const fechaDe = (iso) => { const d = new Date(iso); return isNaN(d) ? null : d; };
   const fmtFH = (iso) => { const d = fechaDe(iso); return d ? `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}` : '—'; };
@@ -8067,13 +8090,74 @@ window.crearModuloCambios = function (G) {
     </div>`;
   }
 
+  // ---- Campana de notificaciones (arriba a la derecha) ----
+  // "Leído" se guarda en este navegador: cada persona marca lo suyo.
+  const LS_VISTO = 'gmp-notif-visto';
+  const leerVisto = () => { try { return localStorage.getItem(LS_VISTO) || ''; } catch (e) { return ''; } };
+  const guardarVisto = (iso) => { try { localStorage.setItem(LS_VISTO, iso); } catch (e) {} };
+  function Campana({ data, onVer }) {
+    const C = (data && data.cambios) || [];
+    const [visto, setVisto] = useState(leerVisto);
+    const [abierto, setAbierto] = useState(false);
+    const [vistoAlAbrir, setVistoAlAbrir] = useState('');
+    // Primera vez en este navegador: cuenta como nuevo lo de las últimas 24 h.
+    const corte = visto ? new Date(visto).getTime() : Date.now() - 86400000;
+    const esNuevo = (c, ref) => (fechaDe(c.fecha) || 0) > ref;
+    const nuevos = C.filter((c) => esNuevo(c, corte)).length;
+    const marcar = () => { const iso = C[0] ? C[0].fecha : new Date().toISOString(); const v = new Date(Math.max(Date.now(), new Date(iso).getTime())).toISOString(); guardarVisto(v); setVisto(v); };
+    const abrir = () => { setVistoAlAbrir(String(corte)); setAbierto(true); };
+    const cerrar = () => { setAbierto(false); marcar(); };
+    useEffect(() => {
+      if (!abierto) return;
+      const f = (ev) => { if (ev.key === 'Escape') cerrar(); };
+      window.addEventListener('keydown', f);
+      return () => window.removeEventListener('keydown', f);
+    }, [abierto, C]);
+    const ref = Number(vistoAlAbrir) || corte;
+    const lista = C.slice(0, 30);
+    const nAbierto = C.filter((c) => esNuevo(c, ref)).length;
+    return html`<span class="notif">
+      <button class=${'notif-btn' + (nuevos ? ' hay' : '')} onClick=${abrir} aria-label=${nuevos ? nuevos + ' cambios sin leer' : 'Novedades'} title=${nuevos ? nuevos + ' cambio' + (nuevos === 1 ? '' : 's') + ' sin leer' : 'Sin novedades'}>
+        ${I.bell}
+        ${nuevos ? html`<span class="notif-n">${nuevos > 99 ? '99+' : nuevos}</span>` : null}
+      </button>
+      ${abierto ? html`<div class="modal-bg" onMouseDown=${(ev) => { if (ev.target === ev.currentTarget) cerrar(); }}>
+        <div class="tile static modal notif-pop" role="dialog" aria-modal="true" aria-labelledby="notif-t">
+          <div class="glow" style=${{ '--gc': 'var(--lime)' }}></div>
+          <div class="notif-hd">
+            <div class="modal-ico">${I.bell}</div>
+            <div style=${{ flex: 1, minWidth: 0 }}>
+              <h3 id="notif-t" class="modal-t" style=${{ margin: 0 }}>Novedades</h3>
+              <div class="lbl">${nAbierto ? nAbierto + ' sin leer' : 'Estás al día'}${data && data.al ? ' · actualizado ' + data.al : ''}</div>
+            </div>
+            <button class="btn btn-sm" onClick=${cerrar} aria-label="Cerrar">✕</button>
+          </div>
+          <div class="notif-list">
+            ${lista.length ? lista.map((c, i) => html`<div key=${i + c.fecha} class=${'notif-it' + (esNuevo(c, ref) ? ' nuevo' : '')}>
+              <span class=${'notif-dot ' + (c.origen === 'App' ? 'app' : 'pla')}></span>
+              <div style=${{ minWidth: 0, flex: 1 }}>
+                <div class="notif-l1"><b>${c.usuario || 'Sin identificar'}</b> <span class="lbl">· ${hace(c.fecha)}</span></div>
+                <div class="notif-l2">${c.accion}${c.detalle ? html` <span class="notif-det">· ${c.detalle}</span>` : null}</div>
+                <div class="lbl">${dondeTxt(c)}</div>
+              </div>
+            </div>`) : html`<div class="empty">Todavía no hay cambios anotados.</div>`}
+          </div>
+          <div class="notif-ft">
+            <button class="btn btn-sm" onClick=${marcar} disabled=${!nuevos}>Marcar todo como leído</button>
+            <button class="btn btn-sm notif-ver" onClick=${() => { cerrar(); onVer(); }}>Ver registro completo →</button>
+          </div>
+        </div>
+      </div>` : null}
+    </span>`;
+  }
+
   // Para el menú principal: el último cambio anotado.
   const ultimo = (data) => {
     const c = data && data.cambios && data.cambios[0];
     return c ? { quien: c.usuario || 'Sin identificar', cuando: hace(c.fecha), fh: fmtFH(c.fecha), donde: dondeTxt(c), que: c.accion, origen: c.origen } : null;
   };
 
-  return { CambiosV, ultimo, hace, fmtFH };
+  return { CambiosV, Campana, ultimo, hace, fmtFH };
 };
 
 </script>
@@ -8117,6 +8201,7 @@ window.crearModuloCambios = function (G) {
     clip: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5 12.5 20a5.5 5.5 0 0 1-7.8-7.8l8.6-8.5a3.7 3.7 0 0 1 5.2 5.2l-8.5 8.5a1.8 1.8 0 0 1-2.6-2.6l7.8-7.8"/></svg>`,
     gen: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="2.5"/><path d="M7 6V3.5M17 6V3.5M12.6 9.2 10 13h4l-2.6 3.8M6 22v-3M18 22v-3"/></svg>`,
     pin: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 22s7-6.2 7-12a7 7 0 0 0-14 0c0 5.8 7 12 7 12z"/><circle cx="12" cy="10" r="2.6"/></svg>`,
+    bell: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>`,
     history: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg>`,
     wrench: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.1L3.5 17.2a2 2 0 0 0 2.8 2.8l5.8-5.8a4 4 0 0 0 5.1-5.4l-2.6 2.6-2.4-.5-.5-2.4z"/></svg>`,
     factory: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21V10l5 3V10l5 3V5h4v16"/><path d="M17 9h4v12"/><path d="M2 21h20"/><path d="M7 17h2M12 17h2"/></svg>`,
@@ -9228,11 +9313,6 @@ window.crearModuloCambios = function (G) {
     const enProc = mants.filter((m) => m.trabajo === 'En proceso').length;
     const pc = (a, n) => (n ? Math.round((a / n) * 100) : 0);
     return html`<div class="bento sec">
-      ${ult ? html`<button class="ult-cambio s12" onClick=${() => goMod('cambios')} title="Ver el registro de cambios">
-        <span class="uc-ic">${I.history}</span>
-        <span class="uc-tx"><span class="lbl">Último cambio</span> <b>${ult.quien}</b> · ${ult.cuando} · ${ult.que} <span class="lbl">(${ult.donde})</span></span>
-        <span class="uc-go">Ver registro →</span>
-      </button>` : null}
       <${ModCard} c=${c} icon=${I.drop} title=${html`Pozos de agua <span class="grad">profunda</span>`} glow="var(--aqua)"
         desc="Estado de cada pozo, niveles y caudal, función, trazabilidad, mapa satelital e informe."
         stats=${[['Pozos', wells.length], ['Operativos', wOp, 'var(--ok)'], ['Fuera de servicio', wFs, 'var(--bad)']]} pct=${pc(wOp, wells.length)}
@@ -9532,11 +9612,17 @@ window.crearModuloCambios = function (G) {
       }
     }, []);
     useEffect(() => { if (ctab !== 'pendientes') setFiltroC(null); }, [ctab]);
+    // La campana se actualiza sola cada 2 minutos (si la pestaña está a la vista).
+    useEffect(() => {
+      if (!CB) return;
+      const t = setInterval(() => { if (!document.hidden) { cmbPedido.current = Date.now(); cargarCambios(); } }, 120000);
+      return () => clearInterval(t);
+    }, []);
     useEffect(() => {
       if (mod === 'compras' && !comprasPedidas.current) { comprasPedidas.current = true; cargarCompras(); }
       if (mod === 'produccion' && !prodPedida.current) { prodPedida.current = true; cargarProd(); }
       if ((mod === 'trabajos' || mod === 'inicio') && !trabPedido.current) { trabPedido.current = true; cargarTrab(); }
-      if ((mod === 'cambios' || mod === 'inicio') && CB && Date.now() - cmbPedido.current > 15000) { cmbPedido.current = Date.now(); cargarCambios(); }
+      if (CB && Date.now() - cmbPedido.current > 15000) { cmbPedido.current = Date.now(); cargarCambios(); }
     }, [mod]);
 
     const authFail = (err) => {
@@ -9764,6 +9850,7 @@ window.crearModuloCambios = function (G) {
           ${mod === 'cambios' ? html`<button class="btn" disabled=${cmb.cargando} onClick=${() => cargarCambios(true)}>${cmb.cargando ? 'Actualizando…' : '↻ Actualizar'}</button>` : null}
           ${mod === 'produccion' ? html`<button class="btn" disabled=${prod.cargando} onClick=${() => cargarProd(true)}>${prod.cargando ? 'Actualizando…' : '↻ Actualizar'}</button>` : null}
           ${mod !== 'inicio' ? html`<div class="navbtns"><button class="btn" onClick=${() => step(-1)}>← Anterior</button><button class="btn" onClick=${() => step(1)}>Siguiente →</button></div>` : null}
+          ${CB && store.mode === 'sheets' ? html`<${CB.Campana} data=${cmb} onVer=${() => setMod('cambios')}/>` : null}
           ${store.mode === 'sheets' ? (admin
             ? html`<div class="admin-pill"><span class="dot ok"></span>${I.user}<span>${admin.user}</span><button class="btn btn-sm" onClick=${logout}>Salir</button></div>`
             : html`<button class="btn" onClick=${() => setShowLogin(true)}>${I.lock} Ingresar</button>`) : null}
@@ -9781,7 +9868,7 @@ window.crearModuloCambios = function (G) {
       <main key=${mod + '/' + curTab}>
         ${mod === 'compras' && compras.error ? html`<div class="aviso-err"><b>No se pudo leer la planilla de compras:</b> ${compras.error}. Se muestra la última copia guardada (${compras.al || 'sin fecha'}).
           <button class="btn btn-sm" onClick=${() => cargarCompras(true)}>Reintentar</button></div>` : null}
-        ${mod === 'inicio' ? html`<${Home} wells=${wells} est=${est} data=${data} bombas=${bombas} mants=${mants} grupos=${grupos} mantsG=${mantsG} frio=${frio} mantsF=${mantsF} trab=${trab} ult=${CB ? CB.ultimo(cmb) : null} goMod=${setMod} openWell=${openWell} openB=${openB}/>` : null}
+        ${mod === 'inicio' ? html`<${Home} wells=${wells} est=${est} data=${data} bombas=${bombas} mants=${mants} grupos=${grupos} mantsG=${mantsG} frio=${frio} mantsF=${mantsF} trab=${trab} goMod=${setMod} openWell=${openWell} openB=${openB}/>` : null}
         ${mod === 'pozos' && tab === 'resumen' ? html`<${Resumen} wells=${wells} data=${data} est=${est} openWell=${openWell} pal=${pal}/>` : null}
         ${mod === 'pozos' && tab === 'ficha' ? html`<${Ficha} canEdit=${canEdit} wells=${wells} sel=${selW} setSel=${setSel} data=${data} est=${est} mutate=${mutate} pal=${pal} onPdf=${onPdf} toast=${toast} bombaDe=${bombaDe} goBomba=${openB}/>` : null}
         ${mod === 'pozos' && tab === 'mapa' ? html`<${Mapa} wells=${wells} sel=${selW} setSel=${setSel} est=${est} goFicha=${openWell} pal=${pal}/>` : null}
