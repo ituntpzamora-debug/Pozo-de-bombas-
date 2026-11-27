@@ -8028,7 +8028,10 @@ window.crearModuloCambios = function (G) {
     const hoy0 = new Date(); hoy0.setHours(0, 0, 0, 0);
     const nHoy = C.filter((c) => (fechaDe(c.fecha) || 0) >= hoy0).length;
     const P = data.planillas || [];
+    const A = data.activadores;
+    const sinAct = Array.isArray(A) ? P.filter((p) => !A.some((a) => a.funcion === 'registrarEdicion' && a.fuente === p.id)) : [];
     return html`<div class="bento sec">
+      ${sinAct.length ? html`<div class="aviso-err s12" style=${{ gridColumn: '1/-1' }}><b>Las ediciones a mano en ${sinAct.map((p) => p.nombre || 'una planilla').join(' y ')} no se están registrando:</b> falta su activador. En el Apps Script de la planilla de la app ejecutá <b>setup</b> (y aceptá los permisos); después tocá Actualizar.</div>` : null}
       <${UltimoT} titulo="Último cambio" c=${C[0]} glow="var(--lime)" vacio="Todavía no hay cambios anotados. Se empiezan a registrar desde que corrés setup con el Code.gs nuevo."/>
       <${UltimoT} titulo="Último cambio desde la app" c=${ultApp} glow="var(--aqua)" vacio="Sin cambios desde la app en el registro."/>
       <${UltimoT} titulo="Última edición a mano en las planillas" c=${ultPla} glow="var(--amber)" vacio="Sin ediciones a mano en el registro."/>
@@ -9462,7 +9465,7 @@ window.crearModuloCambios = function (G) {
       setCmb((c) => Object.assign({}, c, { cargando: true }));
       try {
         const j = await store.cambios();
-        const c = { cambios: j.cambios, planillas: j.planillas || [], registroInstalado: j.registroInstalado, al: new Date().toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' }) };
+        const c = { cambios: j.cambios, planillas: j.planillas || [], activadores: j.activadores, registroInstalado: j.registroInstalado, al: new Date().toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' }) };
         lsSet('pozos-gmp-cambios', Object.assign({}, c, { cambios: j.cambios.slice(0, 300) }));
         setCmb(Object.assign({ src: 'vivo', error: '' }, c));
         if (aviso) toast('Registro de cambios actualizado.');
